@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openclaw.ai/config.schema.json",
+  "agents": {
+    "defaults": {
+      "skills": ["sql-args"]
+    }
+  },
+  "skills": {
+    "entries": {
+      "sql-args": {
+        "enabled": true
+      }
+    }
+  },
+  "tools": {
+    "deny": ["web_search", "web_fetch", "x_search"],
+    "web": {
+      "search": {
+        "enabled": false
+      },
+      "fetch": {
+        "enabled": false
+      },
+      "x_search": {
+        "enabled": false
+      }
+    }
+  }
+}
