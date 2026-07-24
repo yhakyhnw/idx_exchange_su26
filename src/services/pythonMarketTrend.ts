@@ -24,7 +24,7 @@ export async function getPriceTrendFromPython(
   city: string,
   options: MarketQueryOptions,
 ): Promise<CityMonthlyTrendWithChangeRow[]> {
-  const scriptPath = path.resolve(process.cwd(), "data/market_trend.py");
+  const scriptPath = path.resolve(process.cwd(), "src/python/market_trend.py");
   const args = [
     scriptPath,
     "--city",
