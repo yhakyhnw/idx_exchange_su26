@@ -5,8 +5,11 @@ export interface UserSession {
   maxPrice?: number;
   beds?: number;
   baths?: number;
+  sqft?: number;
   type?: string;
   pool?: string;
+  hasView?: string;
+  maxHoa?: number;
   lastResults?: ListingRow[];
   conversationStep: number;
 }

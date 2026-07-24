@@ -1,39 +1,107 @@
 import type { PropertySearchResult } from "./propertySearchSkill";
-import { getAllSessions, getSession, updateSession } from "../services/sessionMemory";
+import { getSession, updateSession } from "../services/sessionMemory";
+import { parsePropertyQuery } from "../parsers/propertyQueryParser";
+import type { PropertyFilters } from "../types/PropertyFilters";
+import { isMarketStatsIntent, marketStatsSkill, type MarketStatsSkillResult } from "./marketStatsSkill";
 
 export type PropertyChatResponse =
-  | { kind: "admin"; message: string }
-  | { kind: "search"; result: PropertySearchResult };
+  | { kind: "prompt"; message: string }
+  | { kind: "search"; result: PropertySearchResult; message?: string };
 
-function normalizeCommand(input: string): string {
-  return input.trim().toLowerCase();
+export type Week4Week5ChatResponse =
+  | PropertyChatResponse
+  | { kind: "market"; result: MarketStatsSkillResult };
+
+const progressivePromptOrder: Array<keyof PropertyFilters> = [
+  "type",
+  "maxPrice",
+  "city",
+  "baths",
+  "beds",
+  "pool",
+  "sqft",
+  "hasView",
+  "maxHoa",
+];
+
+const fieldQuestion: Record<keyof PropertyFilters, string> = {
+  city: "What city are you interested in?",
+  maxPrice: "What is your max budget?",
+  beds: "How many bedrooms do you want at minimum?",
+  baths: "How many bathrooms do you want at minimum?",
+  sqft: "What minimum square footage are you targeting?",
+  type: "Do you prefer condo, townhome, single family, or land?",
+  pool: "Do you want a private pool?",
+  hasView: "Do you want a property with a view?",
+  maxHoa: "Do you have a maximum HOA fee?",
+};
+
+export function countSpecifiedFilters(filters: PropertyFilters): number {
+  return Object.values(filters).filter((value) => value !== null).length;
 }
 
-function printValue(value: string | number | undefined): string {
-  return value === undefined ? "-" : String(value);
-}
-
-export function maybeHandleAdminSessionCommand(
-  userId: string,
-  input: string,
-): PropertyChatResponse | null {
-  if (normalizeCommand(input) !== "!admin session") {
-    return null;
-  }
-
-  const rows = getAllSessions();
-  if (rows.length === 0) {
-    return { kind: "admin", message: "ADMIN SESSION REPORT\nNo active sessions." };
-  }
-
-  const lines = rows.map(({ userId: sessionUserId, session }, index) => {
-    const resultCount = session.lastResults?.length ?? 0;
-    return `${index + 1}) user=${sessionUserId} step=${session.conversationStep} city=${printValue(session.city)} maxPrice=${printValue(session.maxPrice)} beds=${printValue(session.beds)} baths=${printValue(session.baths)} type=${printValue(session.type)} pool=${printValue(session.pool)} results=${resultCount}`;
-  });
-
+export function mergeFiltersWithSession(
+  incoming: PropertyFilters,
+  session: ReturnType<typeof getSession>,
+): PropertyFilters {
   return {
-    kind: "admin",
-    message: `ADMIN SESSION REPORT (${rows.length})\nrequestedBy=${userId}\n${lines.join("\n")}`,
+    city: incoming.city ?? session.city ?? null,
+    maxPrice: incoming.maxPrice ?? session.maxPrice ?? null,
+    beds: incoming.beds ?? session.beds ?? null,
+    baths: incoming.baths ?? session.baths ?? null,
+    sqft: incoming.sqft ?? session.sqft ?? null,
+    type: incoming.type ?? session.type ?? null,
+    pool: incoming.pool ?? (session.pool as "True" | undefined) ?? null,
+    hasView: incoming.hasView ?? (session.hasView as "True" | undefined) ?? null,
+    maxHoa: incoming.maxHoa ?? session.maxHoa ?? null,
+  };
+}
+
+function toSessionUpdates(filters: PropertyFilters) {
+  return {
+    city: filters.city ?? undefined,
+    maxPrice: filters.maxPrice ?? undefined,
+    beds: filters.beds ?? undefined,
+    baths: filters.baths ?? undefined,
+    sqft: filters.sqft ?? undefined,
+    type: filters.type ?? undefined,
+    pool: filters.pool ?? undefined,
+    hasView: filters.hasView ?? undefined,
+    maxHoa: filters.maxHoa ?? undefined,
+  };
+}
+
+function pickNextMissingField(filters: PropertyFilters, conversationStep: number) {
+  for (let index = 0; index < progressivePromptOrder.length; index += 1) {
+    const key = progressivePromptOrder[(conversationStep + index) % progressivePromptOrder.length];
+    if (filters[key] === null) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function buildSearchResult(
+  filters: PropertyFilters,
+  page: number,
+  limit: number,
+  listings: any[],
+  soldComps: any[],
+  activeListingsSql: { sql: string; params: any[] },
+  soldCompsSql: { sql: string; params: any[] } | null,
+): PropertySearchResult {
+  return {
+    filters,
+    listings,
+    soldComps,
+    sql: {
+      activeListings: activeListingsSql,
+      soldComps: soldCompsSql,
+    },
+    pagination: {
+      page,
+      limit,
+    },
   };
 }
 
@@ -44,25 +112,78 @@ export async function handlePropertyChatInput(
   limit = 10,
   months = 12,
 ): Promise<PropertyChatResponse> {
-  const adminResponse = maybeHandleAdminSessionCommand(userId, input);
-  if (adminResponse) {
-    return adminResponse;
+  const parsedFilters = await parsePropertyQuery(input);
+  const session = getSession(userId);
+  const previousStep = session.conversationStep;
+  const mergedFilters = mergeFiltersWithSession(parsedFilters, session);
+  const parsedFilterCount = countSpecifiedFilters(parsedFilters);
+  const mergedFilterCount = countSpecifiedFilters(mergedFilters);
+
+  // For single-filter user inputs, collect more constraints progressively.
+  if (parsedFilterCount <= 1 && mergedFilterCount < 2) {
+    updateSession(userId, {
+      ...toSessionUpdates(mergedFilters),
+      conversationStep: previousStep + 1,
+    });
+
+    const missingField = pickNextMissingField(mergedFilters, previousStep);
+    return {
+      kind: "prompt",
+      message: missingField
+        ? fieldQuestion[missingField]
+        : "Please share one more preference so I can narrow the search.",
+    };
   }
 
-  const { propertySearchSkill } = await import("./propertySearchSkill");
-  const result = await propertySearchSkill(input, page, limit, months);
-  const previousStep = getSession(userId).conversationStep;
+  const { searchActiveListings, getSoldComps } = await import("../services/mlsQueries");
+  const { buildActiveListingsQuery, buildSoldCompsQuery } = await import(
+    "../services/mlsQueryBuilders"
+  );
+  const fetchLimit = Math.max(6, limit);
+  const rawListings = await searchActiveListings(mergedFilters, page, fetchLimit);
+  const hasMoreThanFive = rawListings.length > 5;
+  const topListings = rawListings.slice(0, 5);
+  const soldComps = mergedFilters.city ? await getSoldComps(mergedFilters.city, months) : [];
+  const activeListingsSql = buildActiveListingsQuery(mergedFilters, page, fetchLimit);
+  const soldCompsSql = mergedFilters.city ? buildSoldCompsQuery(mergedFilters.city, months) : null;
+  const result = buildSearchResult(
+    mergedFilters,
+    page,
+    topListings.length,
+    topListings,
+    soldComps,
+    activeListingsSql,
+    soldCompsSql,
+  );
 
   updateSession(userId, {
-    city: result.filters.city ?? undefined,
-    maxPrice: result.filters.maxPrice ?? undefined,
-    beds: result.filters.beds ?? undefined,
-    baths: result.filters.baths ?? undefined,
-    type: result.filters.type ?? undefined,
-    pool: result.filters.pool ?? undefined,
-    lastResults: result.listings,
+    ...toSessionUpdates(mergedFilters),
+    lastResults: topListings,
     conversationStep: previousStep + 1,
   });
 
+  if (parsedFilterCount > 1 && hasMoreThanFive) {
+    return {
+      kind: "search",
+      result,
+      message: "there are more than 5 results, would you like to narrow your search down?",
+    };
+  }
+
   return { kind: "search", result };
+}
+
+export async function handleWeek4Week5ChatInput(
+  userId: string,
+  input: string,
+  page = 1,
+  limit = 10,
+  months = 12,
+): Promise<Week4Week5ChatResponse> {
+  if (isMarketStatsIntent(input)) {
+    const result = await marketStatsSkill(input);
+    return { kind: "market", result };
+  }
+
+  return handlePropertyChatInput(userId, input, page, limit, months);
 }
