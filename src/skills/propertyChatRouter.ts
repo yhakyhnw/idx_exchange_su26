@@ -3,6 +3,11 @@ import { getSession, updateSession } from "../services/sessionMemory";
 import { parsePropertyQuery } from "../parsers/propertyQueryParser";
 import type { PropertyFilters } from "../types/PropertyFilters";
 import { isMarketStatsIntent, marketStatsSkill, type MarketStatsSkillResult } from "./marketStatsSkill";
+import {
+  isSemanticSearchIntent,
+  semanticSearchSkill,
+  type SemanticSearchSkillResult,
+} from "./semanticSearchSkill";
 
 export type PropertyChatResponse =
   | { kind: "prompt"; message: string }
@@ -10,7 +15,8 @@ export type PropertyChatResponse =
 
 export type Week4Week5ChatResponse =
   | PropertyChatResponse
-  | { kind: "market"; result: MarketStatsSkillResult };
+  | { kind: "market"; result: MarketStatsSkillResult }
+  | { kind: "semantic"; result: SemanticSearchSkillResult };
 
 const progressivePromptOrder: Array<keyof PropertyFilters> = [
   "type",
@@ -184,6 +190,21 @@ export async function handleWeek4Week5ChatInput(
     const result = await marketStatsSkill(input);
     return { kind: "market", result };
   }
+  if (isSemanticSearchIntent(input)) {
+    const result = await semanticSearchSkill(input, { topK: 5 });
+    return { kind: "semantic", result };
+  }
 
   return handlePropertyChatInput(userId, input, page, limit, months);
+}
+
+export async function handleWhatsAppChatInput(
+  userId: string,
+  input: string,
+  page = 1,
+  limit = 10,
+  months = 12,
+): Promise<Week4Week5ChatResponse> {
+  // Single, explicit WhatsApp entrypoint that always applies Week4/5/6 routing.
+  return handleWeek4Week5ChatInput(userId, input, page, limit, months);
 }

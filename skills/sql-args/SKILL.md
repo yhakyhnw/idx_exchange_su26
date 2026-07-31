@@ -13,6 +13,17 @@ Use this skill for:
 
 - Week 4 conversational property search over `rets_property`
 - Week 5 market analytics over `california_sold`
+- Week 6 semantic similarity search over active `rets_property` listings
+
+## WhatsApp entrypoint (required)
+
+- For every incoming WhatsApp message, call:
+  `handleWhatsAppChatInput(userId, input, page=1, limit=10, months=12)`
+- `handleWhatsAppChatInput` delegates to `handleWeek4Week5ChatInput`, which enforces routing in this order:
+  1) Week 5 market intent
+  2) Week 6 semantic intent
+  3) Week 4 property flow
+- Never call `handlePropertyChatInput` directly as the WhatsApp entrypoint.
 
 ## Hard rules (must obey, no exceptions)
 
@@ -29,10 +40,26 @@ Use this skill for:
   - "what kind of market stats do you want?"
   - "what timeframe do you want?" (unless city is missing)
 
+1. Route semantic-intent second (before Week 4 property flow).
+
+- Semantic-intent examples: similar homes, matches for vibe/style, charming/craftsman/coastal/modern character queries, mountain/ocean view vibe queries.
+- If semantic intent is detected and market intent is not detected, run Week 6 semantic flow and return top 5 matches.
+- For each returned listing, always display its `L_Remarks` value alongside the listing fields.
+
 1. Never show SQL to user.
 
 - Final response must not contain SQL text.
 - Never include `SQL:`, `SQL_1:`, `SQL_2:`, `SELECT`, `RESULTS:`, query text, placeholders, or debug SQL output.
+
+1. Never use internet or external websites.
+
+- Never browse/search the web.
+- Never use public sources (Zillow, Redfin, Realtor, Google, etc.).
+- Never return external links/URLs in responses.
+- Data sources are internal only: `rets_property` and `california_sold` via internal SQL execution.
+- If internal data access fails, return only:
+`SQL_SERVER_ERROR: Unable to connect or execute query on MySQL. Verify server/network/credentials/database.`
+- Do not offer web-based alternatives.
 
 1. City-only input must ask follow-up first.
 
@@ -170,7 +197,7 @@ Use only SELECT and execute through:
 `/bin/zsh -lc 'set -a; [ -f ".env" ] && source ".env"; set +a; mysql --batch --raw --skip-column-names --host="${MYSQL_HOST:-${DB_HOST:-}}" --user="${MYSQL_USER:-${DB_USER:-}}" --password="${MYSQL_PASSWORD:-${DB_PASSWORD:-}}" "${MYSQL_DATABASE:-${DB_NAME:-}}" -e "<SQL>"'`
 
 Property query base (`rets_property`):
-`SELECT L_ListingID, L_DisplayId, L_Address, L_City, L_Zip, L_SystemPrice AS price, L_Keyword2 AS beds, LM_Dec_3 AS baths, LM_Int2_3 AS sqft, L_Type_ AS type, L_Status AS status, YearBuilt, AssociationFee, DaysOnMarket, PoolPrivateYN, ViewYN, PhotoCount FROM rets_property WHERE L_Status = "Active"`
+`SELECT L_ListingID, L_DisplayId, L_Address, L_City, L_Zip, L_SystemPrice AS price, L_Keyword2 AS beds, LM_Dec_3 AS baths, LM_Int2_3 AS sqft, L_Type_ AS type, L_Status AS status, YearBuilt, AssociationFee, DaysOnMarket, PoolPrivateYN, ViewYN, PhotoCount, L_Remarks AS remarks FROM rets_property WHERE L_Status = "Active"`
 
 Property sort/limit behavior:
 
@@ -201,6 +228,7 @@ Results case (2+ filters):
 - `1) <Address>, <City> <Zip>`
 -    `Price: $<price> | <beds> bd / <baths> ba | <sqft> sqft`
 -    `Type: <type> | DOM: <daysOnMarket-or--> | Photos: <photoCount-or-0>`
+-    `Remarks: <remarks-or-->`
 
 Market response case:
 
@@ -228,4 +256,5 @@ Error case:
 - City-only property input does not run SQL.
 - Property results only appear when 2+ explicit filters are known.
 - Property results are max 5 rows (plus narrowing line when row 6 exists).
+- Response contains no external links and no web-sourced content.
 

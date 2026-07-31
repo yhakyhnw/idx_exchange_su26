@@ -19,7 +19,7 @@ LM_Int2_3 AS sqft, L_Type_ AS type, L_Status AS status,
 LMD_MP_Latitude AS lat, LMD_MP_Longitude AS lng,
 YearBuilt, AssociationFee, DaysOnMarket,
 PoolPrivateYN, ViewYN, FireplaceYN, PhotoCount,
-LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName
+LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName, L_Remarks AS remarks
 FROM rets_property WHERE L_Status = "Active"
 `;
   const params: any[] = [];

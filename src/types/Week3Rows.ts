@@ -22,6 +22,7 @@ export interface ListingRow {
   LA1_UserFirstName: string | null;
   LA1_UserLastName: string | null;
   LO1_OrganizationName: string | null;
+  remarks: string | null;
 }
 
 export interface SoldRow {
