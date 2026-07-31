@@ -11,12 +11,11 @@ import {
 
 export type PropertyChatResponse =
   | { kind: "prompt"; message: string }
-  | { kind: "search"; result: PropertySearchResult; message?: string };
-
-export type Week4Week5ChatResponse =
-  | PropertyChatResponse
+  | { kind: "search"; result: PropertySearchResult; message?: string }
   | { kind: "market"; result: MarketStatsSkillResult }
   | { kind: "semantic"; result: SemanticSearchSkillResult };
+
+export type Week4Week5ChatResponse = PropertyChatResponse;
 
 const progressivePromptOrder: Array<keyof PropertyFilters> = [
   "type",
@@ -118,6 +117,16 @@ export async function handlePropertyChatInput(
   limit = 10,
   months = 12,
 ): Promise<PropertyChatResponse> {
+  // Guardrail routing in case callers invoke this function directly.
+  if (isMarketStatsIntent(input)) {
+    const result = await marketStatsSkill(input);
+    return { kind: "market", result };
+  }
+  if (isSemanticSearchIntent(input)) {
+    const result = await semanticSearchSkill(input, { topK: 5 });
+    return { kind: "semantic", result };
+  }
+
   const parsedFilters = await parsePropertyQuery(input);
   const session = getSession(userId);
   const previousStep = session.conversationStep;
@@ -186,15 +195,7 @@ export async function handleWeek4Week5ChatInput(
   limit = 10,
   months = 12,
 ): Promise<Week4Week5ChatResponse> {
-  if (isMarketStatsIntent(input)) {
-    const result = await marketStatsSkill(input);
-    return { kind: "market", result };
-  }
-  if (isSemanticSearchIntent(input)) {
-    const result = await semanticSearchSkill(input, { topK: 5 });
-    return { kind: "semantic", result };
-  }
-
+  // Single routing source of truth.
   return handlePropertyChatInput(userId, input, page, limit, months);
 }
 
