@@ -2,12 +2,31 @@
   "$schema": "https://openclaw.ai/config.schema.json",
   "agents": {
     "defaults": {
-      "skills": ["sql-args"]
+      "skills": ["real-estate-selector"],
+      "models": {
+        "openai/gpt-5.4-mini": {
+          "alias": "GPT"
+        }
+      },
+      "model": "openai/gpt-5.4-mini"
+    },
+    "entries": {
+      "main": {
+        "default": true,
+        "skills": ["real-estate-selector"],
+        "models": {
+          "openai/gpt-5.4-mini": {
+            "agentRuntime": {
+              "id": "openclaw"
+            }
+          }
+        }
+      }
     }
   },
   "skills": {
     "entries": {
-      "sql-args": {
+      "real-estate-selector": {
         "enabled": true
       }
     }
