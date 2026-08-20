@@ -31,6 +31,16 @@
       }
     }
   },
+  "plugins": {
+    "entries": {
+      "memory-core": {
+        "enabled": false
+      },
+      "heartbeat": {
+        "enabled": false
+      }
+    }
+  },
   "tools": {
     "deny": ["web_search", "web_fetch", "x_search"],
     "web": {
