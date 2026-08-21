@@ -4,6 +4,8 @@ import { formatActiveListingsForWhatsapp, searchActiveListings } from "./searchA
 import { closePool } from "./db.ts";
 import { validateSoldSearchFilters } from "./validateSoldSearchFilters.ts";
 import { formatSoldListingsForWhatsapp, getSoldComps } from "./getSoldComps.ts";
+import { runMarketAnalyticsFromQuery } from "./marketAnalyticsBridge.ts";
+import { runSemanticSearchFromQuery } from "./semanticSearchBridge.ts";
 import {
   buildNarrowingPrompt,
   countCoreActiveArgs,
@@ -113,6 +115,14 @@ export async function runAction(request: RequestPayload) {
         }
         throw error;
       }
+    }
+    case "market_analytics": {
+      const query = typeof payload.query === "string" ? payload.query : "";
+      return await runMarketAnalyticsFromQuery(query);
+    }
+    case "semantic_search_properties": {
+      const query = typeof payload.query === "string" ? payload.query : "";
+      return await runSemanticSearchFromQuery(query);
     }
     default:
       return { status: "WIP", action: request.action };

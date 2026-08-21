@@ -258,6 +258,8 @@
   },
   "default": {
     "conversationStep": 1,
-    "city": "Irvine"
+    "city": "Irvine",
+    "hasView": "True",
+    "pool": "True"
   }
 }
