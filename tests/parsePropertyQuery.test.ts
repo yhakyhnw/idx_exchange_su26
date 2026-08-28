@@ -21,7 +21,7 @@ test("parses beds, city, max price, type, and pool", async () => {
   assert.equal(parsed.maxHoa, null);
   assert.equal(parsed.beds, 3);
   assert.equal(parsed.type, "Condominium");
-  assert.equal(parsed.pool, "True");
+  assert.equal(parsed.pool, "1");
   assert.equal(parsed.baths, null);
   assert.equal(parsed.sqft, null);
   assert.equal(parsed.hasView, null);
@@ -36,7 +36,7 @@ test("parses bathrooms, sqft, and view", async () => {
   assert.equal(parsed.type, "Townhouse");
   assert.equal(parsed.baths, 2.5);
   assert.equal(parsed.sqft, 1800);
-  assert.equal(parsed.hasView, "True");
+  assert.equal(parsed.hasView, "1");
   assert.equal(typeof validation.ok, "boolean");
 });
 
@@ -120,8 +120,8 @@ test("detects view and pool flags", async () => {
   const { parsed, validation } = await runQueryPipeline(query);
 
   assert.equal(parsed.city, "Malibu");
-  assert.equal(parsed.pool, "True");
-  assert.equal(parsed.hasView, "True");
+  assert.equal(parsed.pool, "1");
+  assert.equal(parsed.hasView, "1");
   assert.equal(typeof validation.ok, "boolean");
 });
 

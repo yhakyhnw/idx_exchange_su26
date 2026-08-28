@@ -14,9 +14,6 @@ try:
 except ModuleNotFoundError:
     OpenAI = None
 
-client = OpenAI() if OpenAI is not None else None
-
-
 def cosine_similarity_1d(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
     a_vec = np.asarray(a, dtype=float)
     b_vec = np.asarray(b, dtype=float)
@@ -61,8 +58,13 @@ def build_engine():
 
 
 def get_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    if client is None:
-        raise RuntimeError("OpenAI client unavailable")
+    load_env_file()
+    if OpenAI is None:
+        raise RuntimeError("OpenAI package not installed")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY")
+    client = OpenAI(api_key=api_key)
     text = text.replace("\n", " ").strip()[:8000]  # max token safety
     response = client.embeddings.create(model=model, input=text)
     return response.data[0].embedding

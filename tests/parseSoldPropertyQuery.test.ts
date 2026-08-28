@@ -43,7 +43,7 @@ test("parses sold query with no view correctly", async () => {
 
   assert.equal(parsed.city, "San Diego");
   assert.equal(parsed.beds, 3);
-  assert.equal(parsed.hasView, "False");
+  assert.equal(parsed.hasView, "0");
 });
 
 test("parses sold query with HOA cap", async () => {

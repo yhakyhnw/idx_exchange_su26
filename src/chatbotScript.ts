@@ -77,6 +77,13 @@ export function mergeSessionWithParsedFilters(
   session: UserSession,
   parsed: PropertyFilters,
 ): PropertyFilters {
+  const rawPool = parsed.pool ?? session.pool ?? null;
+  const normalizedPool =
+    rawPool === "True" ? "1" : rawPool === "False" ? "0" : rawPool;
+  const rawView = parsed.hasView ?? session.hasView ?? null;
+  const normalizedView =
+    rawView === "True" ? "1" : rawView === "False" ? "0" : rawView;
+
   return {
     city: parsed.city ?? session.city ?? null,
     maxPrice: parsed.maxPrice ?? session.maxPrice ?? null,
@@ -85,8 +92,8 @@ export function mergeSessionWithParsedFilters(
     baths: parsed.baths ?? session.baths ?? null,
     sqft: parsed.sqft ?? session.sqft ?? null,
     type: parsed.type ?? session.type ?? null,
-    pool: parsed.pool ?? session.pool ?? null,
-    hasView: parsed.hasView ?? session.hasView ?? null,
+    pool: normalizedPool,
+    hasView: normalizedView,
   };
 }
 

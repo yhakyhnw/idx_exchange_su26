@@ -253,7 +253,7 @@ def get_mom_yoy_comparison(city: str, months: int = 24):
 def _normalize_records(df: pd.DataFrame):
     if df is None:
         return []
-    cleaned = df.where(pd.notnull(df), None)
+    cleaned = df.astype(object).where(pd.notnull(df), None)
     return cleaned.to_dict(orient="records")
 
 
