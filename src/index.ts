@@ -42,7 +42,7 @@ type IntentFlags = {
 export function detectIntentFlags(query: string): IntentFlags {
   const q = query.toLowerCase();
   return {
-    isSearch: /\b(find|show|list|homes?|houses?|condos?|properties|listings?)\b/.test(q),
+    isSearch: /\b(find|show|homes?|houses?|condos?|properties|listings?)\b/.test(q),
     isMarket:
       /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close)\b/.test(
         q,
@@ -63,8 +63,25 @@ export function extractSearchQueryForMixed(query: string): string {
   return query;
 }
 
+export function extractKnowledgeQueryForMixed(query: string): string {
+  const match = query.match(
+    /(explain\s.+|what is\s.+|what does\s.+|define\s.+|meaning of\s.+)$/i,
+  );
+  if (match?.[0]) return match[0].trim();
+  return query;
+}
+
 async function classifyIntent(query: string): Promise<OrchestratorIntent> {
   const flags = detectIntentFlags(query);
+  if (
+    flags.isKnowledge &&
+    !flags.isSearch &&
+    !flags.isMarket &&
+    !flags.isRecommend &&
+    !flags.isEmail
+  ) {
+    return "knowledge";
+  }
   const hitCount = [
     flags.isSearch,
     flags.isMarket,
@@ -156,6 +173,7 @@ export async function orchestrate(query: string, userId: string) {
       const flags = detectIntentFlags(query);
       const sections: Array<{ label: string; value: unknown }> = [];
       const searchQuery = extractSearchQueryForMixed(query);
+      const knowledgeQuery = extractKnowledgeQueryForMixed(query);
 
       let listingsResult: unknown = null;
       if (flags.isSearch) {
@@ -170,7 +188,7 @@ export async function orchestrate(query: string, userId: string) {
         parallelLabels.push("Reply from Market Stats Agent");
       }
       if (flags.isKnowledge) {
-        parallelTasks.push(ragAgent(query));
+        parallelTasks.push(ragAgent(knowledgeQuery));
         parallelLabels.push("Reply from RAG Agent");
       }
       if (flags.isEmail) {
