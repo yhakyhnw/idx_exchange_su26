@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { redactLocalPaths, spawnPythonFromSrc } from "./repoPaths.ts";
 
 type RagResponse = {
   answer?: string;
@@ -11,16 +9,15 @@ export async function runRagKnowledgeFromQuery(query: string): Promise<string> {
   const trimmed = query.trim();
   if (!trimmed) return "Please include a question for knowledge retrieval.";
 
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = path.dirname(currentFile);
-  const scriptPath = path.join(currentDir, "ragKnowledge.py");
-  const result = spawnSync("python3", [scriptPath, "--query", trimmed, "--top-k", "4"], {
-    encoding: "utf8",
-    cwd: currentDir,
-  });
+  const result = spawnPythonFromSrc(import.meta.url, "ragKnowledge.py", [
+    "--query",
+    trimmed,
+    "--top-k",
+    "4",
+  ]);
 
   if (result.status !== 0) {
-    const err = (result.stderr || result.stdout || "").trim();
+    const err = redactLocalPaths((result.stderr || result.stdout || "").trim());
     return err || "RAG knowledge retrieval failed.";
   }
 

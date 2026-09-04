@@ -87,7 +87,8 @@ def main():
 
     output_path = Path(__file__).resolve().with_name("valid_rets_property_args.json")
     output_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
-    print(str(output_path))
+    repo_root = Path(__file__).resolve().parents[2]
+    print(output_path.relative_to(repo_root).as_posix())
 
 
 if __name__ == "__main__":

@@ -1,7 +1,5 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parsePropertyQuery } from "./parsePropertyQuery.ts";
+import { redactLocalPaths, spawnPythonFromSrc } from "./repoPaths.ts";
 
 type AnalyticsAction =
   | "price_trend"
@@ -224,21 +222,14 @@ export async function runMarketAnalyticsFromQuery(query: string): Promise<string
     return "Please include a city for this market analytics question.";
   }
 
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = path.dirname(currentFile);
-  const scriptPath = path.join(currentDir, "marketAnalytics.py");
-
-  const args = ["python3", scriptPath, action, "--months", String(months), "--limit", String(limit)];
+  const args = [action, "--months", String(months), "--limit", String(limit)];
   if (city) args.push("--city", city);
   if (action === "avg_median") args.push("--group-by", groupBy);
 
-  const result = spawnSync(args[0], args.slice(1), {
-    encoding: "utf8",
-    cwd: currentDir,
-  });
+  const result = spawnPythonFromSrc(import.meta.url, "marketAnalytics.py", args);
 
   if (result.status !== 0) {
-    const err = (result.stderr || result.stdout || "").trim();
+    const err = redactLocalPaths((result.stderr || result.stdout || "").trim());
     return err || "Market analytics query failed.";
   }
 

@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { redactLocalPaths, spawnPythonFromSrc } from "./repoPaths.ts";
 
 type SemanticListingRow = {
   L_Address?: string | null;
@@ -55,18 +53,15 @@ export async function runSemanticSearchFromQuery(query: string): Promise<string>
   const trimmed = query.trim();
   if (!trimmed) return "Please include a property description for semantic search.";
 
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = path.dirname(currentFile);
-  const scriptPath = path.join(currentDir, "embeddingVectorSearch.py");
-
-  const args = ["python3", scriptPath, "--query", trimmed, "--top-k", "5"];
-  const result = spawnSync(args[0], args.slice(1), {
-    encoding: "utf8",
-    cwd: currentDir,
-  });
+  const result = spawnPythonFromSrc(import.meta.url, "embeddingVectorSearch.py", [
+    "--query",
+    trimmed,
+    "--top-k",
+    "5",
+  ]);
 
   if (result.status !== 0) {
-    const err = (result.stderr || result.stdout || "").trim();
+    const err = redactLocalPaths((result.stderr || result.stdout || "").trim());
     return err || "Semantic search failed.";
   }
 

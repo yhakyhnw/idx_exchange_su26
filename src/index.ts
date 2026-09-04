@@ -9,6 +9,7 @@ import { runSemanticSearchFromQuery } from "./semanticSearchBridge.ts";
 import { runHybridRecommendationFromAddress } from "./recommendationBridge.ts";
 import { runRagKnowledgeFromQuery } from "./ragKnowledgeBridge.ts";
 import { pathToFileURL } from "node:url";
+import { redactLocalPaths } from "./repoPaths.ts";
 import {
   buildNarrowingPrompt,
   countCoreActiveArgs,
@@ -719,7 +720,7 @@ async function main() {
     }
     console.log(JSON.stringify(result));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = redactLocalPaths(error instanceof Error ? error.message : "Unknown error");
     console.log(JSON.stringify({ status: "error", message }));
     process.exitCode = 1;
   } finally {

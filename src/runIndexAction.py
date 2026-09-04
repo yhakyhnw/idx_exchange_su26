@@ -67,19 +67,24 @@ def main() -> int:
     node_cmd = [
         node_bin,
         "--experimental-strip-types",
-        str(repo_root / "src" / "index.ts"),
+        "src/index.ts",
         json.dumps(request),
     ]
 
     completed = subprocess.run(node_cmd, cwd=str(repo_root), capture_output=True, text=True)
+
+    def redact(text: str) -> str:
+        home = str(Path.home())
+        return text.replace(str(repo_root), ".").replace(home, "~")
+
     if completed.returncode != 0:
         if completed.stdout:
-            print(completed.stdout.strip())
+            print(redact(completed.stdout.strip()))
         if completed.stderr:
-            print(completed.stderr.strip(), file=sys.stderr)
+            print(redact(completed.stderr.strip()), file=sys.stderr)
         return completed.returncode
 
-    print((completed.stdout or "").strip() or "There are no returned results.")
+    print(redact((completed.stdout or "").strip()) or "There are no returned results.")
     return 0
 
 

@@ -69,7 +69,7 @@ def build_engine():
 def get_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
     load_env_file()
     if OpenAI is None:
-        raise RuntimeError(f"OpenAI package not installed for interpreter: {sys.executable}")
+        raise RuntimeError("OpenAI package not installed")
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY")
@@ -175,7 +175,7 @@ def load_pdf_documents() -> list[dict]:
     if not pdf_paths:
         return []
     if PdfReader is None:
-        raise RuntimeError(f"PDF reader not installed for interpreter: {sys.executable}")
+        raise RuntimeError("PDF reader not installed")
 
     docs = []
     for pdf_path in pdf_paths:

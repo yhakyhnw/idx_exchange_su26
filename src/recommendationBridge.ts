@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { redactLocalPaths, spawnPythonFromSrc } from "./repoPaths.ts";
 
 type RecommendationRow = {
   L_Address?: string | null;
@@ -39,26 +37,15 @@ export async function runHybridRecommendationFromAddress(targetAddress: string):
   const trimmed = targetAddress.trim();
   if (!trimmed) return "Please include the target listing address.";
 
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = path.dirname(currentFile);
-  const scriptPath = path.join(currentDir, "hybridRecommendation.py");
-
-  const args = [
-    "python3",
-    scriptPath,
+  const result = spawnPythonFromSrc(import.meta.url, "hybridRecommendation.py", [
     "--target-address",
     trimmed,
     "--top-k",
     "5",
-  ];
-
-  const result = spawnSync(args[0], args.slice(1), {
-    encoding: "utf8",
-    cwd: currentDir,
-  });
+  ]);
 
   if (result.status !== 0) {
-    const err = (result.stderr || result.stdout || "").trim();
+    const err = redactLocalPaths((result.stderr || result.stdout || "").trim());
     return err || "Recommendation query failed.";
   }
 
