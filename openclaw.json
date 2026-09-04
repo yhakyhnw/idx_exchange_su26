@@ -4,17 +4,26 @@
     "defaults": {
       "skills": ["real-estate-selector"],
       "models": {
+        "openai/gpt-5.6": {},
         "openai/gpt-5.4-mini": {
           "alias": "GPT"
         }
       },
-      "model": "openai/gpt-5.4-mini"
+      "model": {
+        "primary": "openai/gpt-5.6",
+        "fallbacks": ["openai/gpt-5.4-mini"]
+      }
     },
     "entries": {
       "main": {
         "default": true,
         "skills": ["real-estate-selector"],
         "models": {
+          "openai/gpt-5.6": {
+            "agentRuntime": {
+              "id": "openclaw"
+            }
+          },
           "openai/gpt-5.4-mini": {
             "agentRuntime": {
               "id": "openclaw"

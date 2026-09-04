@@ -1,15 +1,13 @@
 ---
 name: real-estate-selector
-description: Route all real-estate requests to orchestrator.
+description: Route real-estate requests to orchestrator.
 ---
 
 Skill Selector:
 
-1. If the query is clearly non-real-estate, reply exactly:
-  `I'm sorry, I'm a real estate AI assistant, and your inquiry is not something I can help with.`
-2. Otherwise run exactly one command:
-  `python3 "./src/runIndexAction.py" whatsapp_message "<user query>"`
-3. If command output indicates unsupported scope (for example `WIP` or "I'm not sure how to help"), reply:
-  `I'm sorry, I can only help with the currently supported real estate tasks.`
-4. Otherwise reply with exact stdout only.
+This skill is only used for in-scope real-estate requests. Do not refuse here.
 
+1. Run exactly one command:
+   `python3 "./src/runIndexAction.py" whatsapp_message '<user query>'`
+2. Tool output is not delivered to the user. After the command returns, send a normal assistant text message whose entire body is the command stdout.
+3. Never reply with `NO_REPLY`, `HEARTBEAT_OK`, an empty message, or an out-of-scope refusal. Those tokens suppress delivery and look like a failed run.

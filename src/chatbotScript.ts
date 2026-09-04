@@ -21,6 +21,13 @@ export interface UserSession {
     body: string;
     createdAt: string;
   };
+  pendingEmailDrafts?: Array<{
+    id: string;
+    to: string;
+    subject: string;
+    body: string;
+    createdAt: string;
+  }>;
   conversationStep: number;
 }
 

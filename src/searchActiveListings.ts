@@ -30,7 +30,7 @@ export function buildSearchActiveListingsQuery(
 params.push(filters.city); }
     if (filters.maxPrice) { sql += " AND L_SystemPrice <= ?";
 params.push(filters.maxPrice); }
-    if (filters.beds) { sql += " AND L_Keyword2 >= ?";
+    if (filters.beds) { sql += " AND L_Keyword2 = ?";
 params.push(filters.beds); }
     if (filters.baths) { sql += " AND LM_Dec_3 >= ?";
 params.push(filters.baths); }

@@ -7,6 +7,8 @@ type AgentResult = {
   response?: string;
 };
 
+const userMessageQueue = new Map<string, Promise<string>>();
+
 async function sendTypingIndicator(userId: string): Promise<void> {
   const presentation = JSON.stringify({
     context: { typing: true },
@@ -30,14 +32,27 @@ async function sendTypingIndicator(userId: string): Promise<void> {
 }
 
 export async function onWhatsAppMessage(message: string, userId: string) {
-  await sendTypingIndicator(userId);
-  try {
-    const result = await orchestrate(message, userId);
-    return formatForWhatsApp(result as AgentResult | string, message);
-  } catch (err) {
-    console.error("Orchestration error:", err);
-    return "Sorry, I hit an issue. Please try again.";
-  }
+  const normalizedMessage = extractLatestUserQuery(message);
+  const prev = userMessageQueue.get(userId) ?? Promise.resolve("");
+  const next = prev
+    .catch(() => "")
+    .then(async () => {
+      await sendTypingIndicator(userId);
+      try {
+        const result = await orchestrate(normalizedMessage, userId);
+        return formatForWhatsApp(result as AgentResult | string, normalizedMessage);
+      } catch (err) {
+        console.error("Orchestration error:", err);
+        return "Sorry, I hit an issue. Please try again.";
+      }
+    });
+
+  userMessageQueue.set(userId, next);
+  return await next.finally(() => {
+    if (userMessageQueue.get(userId) === next) {
+      userMessageQueue.delete(userId);
+    }
+  });
 }
 
 export function formatForWhatsApp(result: AgentResult | string, question = ""): string {
@@ -53,6 +68,16 @@ export function formatForWhatsApp(result: AgentResult | string, question = ""): 
       const headerMatch = trimmed.match(/^Reply from (.+? Agent):\s*/i);
       const agentName = headerMatch?.[1]?.trim() ?? "";
       const body = headerMatch ? trimmed.slice(headerMatch[0].length).trim() : trimmed;
+
+      if (!agentName && /pending email drafts? (is|are) saved under id/i.test(trimmed)) {
+        const idsMatch = trimmed.match(/IDs?:\s*(.+?)\./i);
+        if (idsMatch?.[1]) {
+          return `✉️ Pending drafts saved: ${idsMatch[1]}\nUse: check draft`;
+        }
+        const idMatch = trimmed.match(/ID\s+([A-Za-z0-9_-]+)/i);
+        const draftId = idMatch?.[1] ?? "<draftId>";
+        return `✉️ Pending draft saved: ${draftId}\nUse: approve email ${draftId}\nOr: delete draft ${draftId}`;
+      }
 
       const listingLines = body
         .split(/\r?\n/)
@@ -114,10 +139,10 @@ export function formatForWhatsApp(result: AgentResult | string, question = ""): 
       return trimmed;
     });
 
-    return formattedSections.join("\n\n---\n\n");
+    return capForWhatsApp(formattedSections.join("\n\n---\n\n"));
   }
   if (result.listings) {
-    return result.listings
+    const text = result.listings
       .slice(0, 5)
       .map(
         (l) =>
@@ -126,12 +151,13 @@ export function formatForWhatsApp(result: AgentResult | string, question = ""): 
           ` 📅 ${l.DaysOnMarket} days on market`,
       )
       .join("\n\n");
+    return capForWhatsApp(text);
   }
-  return result.response || "There are no returned results.";
+  return capForWhatsApp(result.response || "There are no returned results.");
 }
 
 function getAgentScopedQuestion(agent: string, question: string): string {
-  const q = question.trim();
+  const q = normalizeDisplayQuestion(question);
   if (!q) return "";
 
   const clauses = q
@@ -173,6 +199,10 @@ function getAgentScopedQuestion(agent: string, question: string): string {
   return cleanClause(q);
 }
 
+function normalizeDisplayQuestion(input: string): string {
+  return input.trim().replace(/^\[[^\]]+\]\s*/i, "").trim();
+}
+
 function cleanClause(input: string): string {
   const stripped = input
     .trim()
@@ -180,4 +210,32 @@ function cleanClause(input: string): string {
     .trim();
   if (!stripped) return "";
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
+function capForWhatsApp(text: string, maxChars = 3000): string {
+  if (text.length <= maxChars) return text;
+  const clipped = text.slice(0, maxChars);
+  return `${clipped}\n\n...`;
+}
+
+function extractLatestUserQuery(message: string): string {
+  const lines = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const cleanedLines = lines.filter(
+    (line) =>
+      !/^(use:|reply with:|or:|sources:|pending drafts?:|draft id:)/i.test(line),
+  );
+
+  const controlLine = cleanedLines.find((line) =>
+    /^(?:\[[^\]]+\]\s*)?(approve email|delete draft|check draft)\b/i.test(line),
+  );
+  if (controlLine) {
+    return controlLine.replace(/^\[[^\]]+\]\s*/i, "").trim();
+  }
+
+  const candidatePool = cleanedLines.length ? cleanedLines : lines;
+  const candidate = candidatePool.length ? candidatePool[candidatePool.length - 1] : message.trim();
+  return candidate.replace(/^\[[^\]]+\]\s*/i, "").trim();
 }

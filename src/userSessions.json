@@ -261,9 +261,9 @@
     "city": "Irvine",
     "hasView": "1",
     "pool": "1",
-    "maxPrice": 200000,
+    "maxPrice": 1500000,
     "lastResults": [],
-    "beds": 10,
+    "beds": 3,
     "type": "Condominium"
   }
 }

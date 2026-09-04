@@ -83,6 +83,14 @@ function inferAction(query: string): AnalyticsAction {
   ) {
     return "list_to_close_ratio_trend";
   }
+  if (
+    lower.includes("rising") ||
+    lower.includes("falling") ||
+    lower.includes("price trend") ||
+    lower.includes("prices trend")
+  ) {
+    return "price_trend";
+  }
   if (lower.includes("days on market") || /\bdom\b/.test(lower)) {
     return "avg_dom_by_city_month";
   }
@@ -114,16 +122,19 @@ function requiresCity(action: AnalyticsAction): boolean {
 }
 
 function formatMoney(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "N/A";
   const num = Number(value);
   return Number.isFinite(num) ? `$${Math.round(num).toLocaleString()}` : "N/A";
 }
 
 function formatNumber(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "N/A";
   const num = Number(value);
   return Number.isFinite(num) ? num.toLocaleString() : "N/A";
 }
 
 function formatPct(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "N/A";
   const num = Number(value);
   return Number.isFinite(num) ? `${num.toFixed(1)}%` : "N/A";
 }

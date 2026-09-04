@@ -61,6 +61,15 @@ def get_price_trend(city: str, months: int = 24):
     ORDER BY month
     """
     df = pd.read_sql(query, engine, params=(city, months))
+    month_range = pd.date_range(
+        end=pd.Timestamp.today().replace(day=1),
+        periods=months,
+        freq="MS",
+    ).strftime("%Y-%m")
+    full_months = pd.DataFrame({"month": month_range})
+    df = full_months.merge(df, on="month", how="left")
+    df["sales"] = df["sales"].fillna(0).astype(int)
+    df.loc[df["sales"] == 0, ["avg_price", "avg_dom"]] = None
     df["price_change_pct"] = df["avg_price"].pct_change() * 100
     return df
 

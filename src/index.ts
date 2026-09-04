@@ -23,6 +23,13 @@ type RequestPayload = {
   payload?: Record<string, unknown>;
 };
 const MAX_RESULT_ROWS = 50;
+type PendingEmailDraft = {
+  id: string;
+  to: string;
+  subject: string;
+  body: string;
+  createdAt: string;
+};
 
 export type OrchestratorIntent =
   | "search"
@@ -42,15 +49,25 @@ type IntentFlags = {
 
 export function detectIntentFlags(query: string): IntentFlags {
   const q = query.toLowerCase();
+  const hasDefinitionCue = /\b(what is|what does|define|meaning|explain)\b/.test(q);
+  const hasStrongMarketCue =
+    /\b(rising|falling|trend|trends|inventory|last\s+\d+\s*(months?|weeks?|years?)|over\s+the\s+last|month over month|mom|yoy|year over year|median price|average price)\b/.test(
+      q,
+    );
+  const hasMarketKeyword =
+    /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close)\b/.test(
+      q,
+    );
   return {
     isSearch: /\b(find|show|homes?|houses?|condos?|properties|listings?)\b/.test(q),
-    isMarket:
-      /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close)\b/.test(
-        q,
-      ),
+    isMarket: hasMarketKeyword && !(hasDefinitionCue && !hasStrongMarketCue),
     isRecommend: /\b(similar|recommend|comparable|comps)\b/.test(q),
     isKnowledge: /\b(what is|what does|define|meaning|column|field|explain)\b/.test(q),
-    isEmail: /\b(email|draft|summary|send)\b/.test(q),
+    isEmail:
+      /\bapprove email\b/.test(q) ||
+      /\bdelete draft\b/.test(q) ||
+      /\bcheck draft\b/.test(q) ||
+      /\b(?:draft|send)\b[\s\S]{0,80}\bemail\b/.test(q),
   };
 }
 
@@ -74,7 +91,7 @@ export function extractKnowledgeQueryForMixed(query: string): string {
 
 function hasStrongMarketAnalyticsSignal(query: string): boolean {
   const q = query.toLowerCase();
-  return /\b(rising|falling|trend|trends|inventory|list-to-close|list to close|last\s+\d+\s*(months?|weeks?|years?)|over\s+the\s+last|month over month|mom|yoy|year over year|median price|average price)\b/.test(
+  return /\b(rising|falling|trend|trends|inventory|last\s+\d+\s*(months?|weeks?|years?)|over\s+the\s+last|month over month|mom|yoy|year over year|median price|average price)\b/.test(
     q,
   );
 }
@@ -164,28 +181,166 @@ function htmlFromText(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  return `<pre>${escaped}</pre>`;
+  return `<div>${escaped.replace(/\n/g, "<br/>")}</div>`;
 }
 
 function buildDraftPreview(id: string, to: string, subject: string, body: string): string {
+  const previewText = body
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?[^>]+>/g, "")
+    .split(/\r?\n/)
+    .slice(0, 8)
+    .join("\n");
   return [
     "Email draft queued (pending approval).",
     `Draft ID: ${id}`,
     `To: ${to}`,
     `Subject: ${subject}`,
     "Preview:",
-    body,
+    previewText,
     `Reply with: approve email ${id}`,
-    `Or: cancel email ${id}`,
+    `Or: delete draft ${id}`,
   ].join("\n");
 }
 
-function parseDraftAction(query: string): { type: "approve" | "cancel" | "draft"; id?: string } {
-  const trimmed = query.trim();
+function getPendingDrafts(userId: string): PendingEmailDraft[] {
+  const session = getSession(userId) as {
+    pendingEmailDraft?: PendingEmailDraft;
+    pendingEmailDrafts?: PendingEmailDraft[];
+  };
+  if (Array.isArray(session.pendingEmailDrafts)) return session.pendingEmailDrafts;
+  if (session.pendingEmailDraft) return [session.pendingEmailDraft];
+  return [];
+}
+
+function setPendingDrafts(userId: string, drafts: PendingEmailDraft[]): void {
+  updateSession(userId, {
+    pendingEmailDrafts: drafts.length ? drafts : undefined,
+    pendingEmailDraft: drafts.length ? drafts[0] : undefined,
+  } as {
+    pendingEmailDrafts?: PendingEmailDraft[];
+    pendingEmailDraft?: PendingEmailDraft;
+  });
+}
+
+function buildDraftListPreview(drafts: PendingEmailDraft[]): string {
+  const lines = ["Saved email drafts:"];
+  for (const d of drafts) {
+    lines.push(`- ${d.id} | to ${d.to} | ${d.subject}`);
+  }
+  lines.push("Use: check draft <draftId>");
+  lines.push("Use: approve email <draftId>");
+  lines.push("Use: delete draft <draftId>");
+  lines.push("Use: delete draft all");
+  return lines.join("\n");
+}
+
+function buildDraftIdMismatchMessage(drafts: PendingEmailDraft[]): string {
+  if (!drafts.length) return "Draft ID does not match the pending draft.";
+  const ids = drafts.map((d) => d.id).join(", ");
+  return `Draft ID does not match the pending draft. Current draft IDs: ${ids}. Use: check draft`;
+}
+
+function normalizeEmailCommandText(query: string): string {
+  return query.trim().replace(/^\[[^\]]+\]\s*/i, "").trim();
+}
+
+function extractEmailIntentQuery(query: string): string {
+  const cleaned = normalizeEmailCommandText(query)
+    .replace(/\bemail\s+to\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
+    .replace(/\bdraft\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || normalizeEmailCommandText(query);
+}
+
+function extractCityFromText(query: string): string | null {
+  const match = query.match(/(?:\bin\b|\bfor\b)\s+([A-Za-z\s]+?)(?:\s+over|\s+last|\s+with|\s+and|[?.!,]|$)/i);
+  const raw = match?.[1]?.trim();
+  if (!raw) return null;
+  const cityAliasMap: Record<string, string> = {
+    LA: "Los Angeles",
+    SD: "San Diego",
+    SB: "Santa Barbara",
+    SC: "Santa Clarita",
+    SF: "San Francisco",
+    SJ: "San Jose",
+  };
+  const mapped = cityAliasMap[raw.toUpperCase()] ?? raw;
+  return mapped
+    .toLowerCase()
+    .split(" ")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+function buildMarketTrendPrompt(query: string): string {
+  const city = extractCityFromText(query);
+  if (!city) return "Please include a city for this market analytics question.";
+  return `Tell me if prices are rising in ${city} over the last 6 months.`;
+}
+
+async function getEmailSourceContent(query: string, userId: string): Promise<{ agent: string; content: string }> {
+  const intentQuery = extractEmailIntentQuery(query);
+  const lower = intentQuery.toLowerCase();
+  const flags = detectIntentFlags(intentQuery);
+
+  if (lower.includes("listing alert")) {
+    return {
+      agent: "Property Search Agent",
+      content: String(await propertySearchAgent(intentQuery, userId)),
+    };
+  }
+  if (lower.includes("weekly") || lower.includes("market report")) {
+    return {
+      agent: "Market Stats Agent",
+      content: String(await marketStatsAgent(buildMarketTrendPrompt(intentQuery))),
+    };
+  }
+  if (lower.includes("property summary") || lower.includes("recommendation digest") || flags.isRecommend) {
+    return {
+      agent: "Recommendation Agent",
+      content: String(await recommendationAgent(getSession(userId).lastResults?.[0])),
+    };
+  }
+  if (flags.isKnowledge) {
+    return {
+      agent: "RAG Agent",
+      content: String(await ragAgent(intentQuery)),
+    };
+  }
+  if (flags.isSearch) {
+    return {
+      agent: "Property Search Agent",
+      content: String(await propertySearchAgent(intentQuery, userId)),
+    };
+  }
+  return {
+    agent: "Market Stats Agent",
+    content: String(await marketStatsAgent(buildMarketTrendPrompt(intentQuery))),
+  };
+}
+
+function hasMalformedPriceToken(query: string): boolean {
+  const q = query.toLowerCase();
+  const hasUnder = /\bunder\b/.test(q);
+  const hasNumberedPrice = /under\s+\$?\s*[\d,.]+\s*(k|m)?\b/i.test(q);
+  const hasBareSuffix = /under\s+\$?\s*(k|m)\b/i.test(q);
+  return hasUnder && !hasNumberedPrice && hasBareSuffix;
+}
+
+function parseDraftAction(query: string): { type: "approve" | "delete" | "check" | "draft"; id?: string } {
+  const trimmed = normalizeEmailCommandText(query);
   const approve = trimmed.match(/^approve email(?:\s+([A-Za-z0-9_-]+))?$/i);
   if (approve) return { type: "approve", id: approve[1] };
+  if (/^delete draft all$/i.test(trimmed)) return { type: "delete", id: "all" };
+  const del = trimmed.match(/^delete draft(?:\s+([A-Za-z0-9_-]+))?$/i);
+  if (del) return { type: "delete", id: del[1] };
+  if (/^cancel email all$/i.test(trimmed)) return { type: "delete", id: "all" };
   const cancel = trimmed.match(/^cancel email(?:\s+([A-Za-z0-9_-]+))?$/i);
-  if (cancel) return { type: "cancel", id: cancel[1] };
+  if (cancel) return { type: "delete", id: cancel[1] };
+  const check = trimmed.match(/^check draft(?:\s+([A-Za-z0-9_-]+))?$/i);
+  if (check) return { type: "check", id: check[1] };
   return { type: "draft" };
 }
 
@@ -199,62 +354,38 @@ async function buildEmailDraftFromQuery(query: string, userId: string): Promise<
     throw new Error("Please include a recipient email in your request.");
   }
   const lower = query.toLowerCase();
-  const session = getSession(userId);
+  const source = await getEmailSourceContent(query, userId);
+  const sourcedBody = `Source Agent: ${source.agent}\n\n${source.content}`;
 
   if (lower.includes("weekly") || lower.includes("market report")) {
-    const marketText = await marketStatsAgent(query);
     return {
       to: recipient,
       subject: "Weekly Market Report",
-      body: htmlFromText(String(marketText)),
+      body: htmlFromText(sourcedBody),
     };
   }
 
   if (lower.includes("listing alert") || lower.includes("listing alerts")) {
-    const parsedFilters = await parsePropertyQuery(query);
-    const filters = mergeSessionWithParsedFilters(session, parsedFilters);
-    const rows = await searchActiveListings(filters, 1, 10);
-    const listingsText = formatActiveListingsForWhatsapp(rows, 1, 10);
     return {
       to: recipient,
       subject: "New Listing Alert",
-      body: htmlFromText(listingsText),
+      body: htmlFromText(sourcedBody),
     };
   }
 
   if (lower.includes("property summary")) {
-    const target = session.lastResults?.[0];
-    if (!target) {
-      throw new Error("No prior listing found. Run a property search first.");
-    }
-    const recs = await runHybridRecommendationFromAddress(target.L_Address);
-    const summary = [
-      `Address: ${target.L_Address}, ${target.L_City} ${target.L_Zip}`,
-      `Price: $${target.price.toLocaleString()}`,
-      `Beds/Baths: ${target.beds}/${target.baths}`,
-      `Sqft: ${target.sqft}`,
-      `Photos: ${target.PhotoCount}`,
-      "",
-      "Comparable snapshot:",
-      String(recs),
-    ].join("\n");
     return {
       to: recipient,
       subject: "Property Summary",
-      body: htmlFromText(summary),
+      body: htmlFromText(sourcedBody),
     };
   }
 
   if (lower.includes("recommendation digest") || lower.includes("digest")) {
-    const target = session.lastResults?.[0];
-    if (!target) {
-      throw new Error("No prior listing found. Run a property search first.");
-    }
-    const recs = await runHybridRecommendationFromAddress(target.L_Address);
     return {
       to: recipient,
       subject: "Personalized Recommendation Digest",
-      body: htmlFromText(String(recs)),
+      body: htmlFromText(sourcedBody),
     };
   }
 
@@ -265,44 +396,78 @@ async function buildEmailDraftFromQuery(query: string, userId: string): Promise<
 
 async function emailDraftAgent(query: string, userId: string): Promise<unknown> {
   const action = parseDraftAction(query);
-  const session = getSession(userId);
+  const pendingDrafts = getPendingDrafts(userId);
 
-  if (action.type === "cancel") {
-    if (!session.pendingEmailDraft) return "No pending email draft to cancel.";
-    if (action.id && action.id !== session.pendingEmailDraft.id) {
-      return "Draft ID does not match the pending draft.";
+  if (action.type === "check") {
+    if (!pendingDrafts.length) return "No pending email draft saved.";
+    if (!action.id) return buildDraftListPreview(pendingDrafts);
+    const draft = pendingDrafts.find((d) => d.id === action.id);
+    if (!draft) {
+      return buildDraftIdMismatchMessage(pendingDrafts);
     }
-    updateSession(userId, { pendingEmailDraft: undefined });
-    return "Pending email draft canceled.";
+    return buildDraftPreview(
+      draft.id,
+      draft.to,
+      draft.subject,
+      draft.body,
+    );
+  }
+
+  if (action.type === "delete") {
+    if (!pendingDrafts.length) return "No pending email draft to delete.";
+    if (action.id === "all") {
+      setPendingDrafts(userId, []);
+      return "All pending email drafts deleted.";
+    }
+    if (!action.id) {
+      return "Please include the draft ID. Example: delete draft <draftId>";
+    }
+    const nextDrafts = pendingDrafts.filter((d) => d.id !== action.id);
+    if (nextDrafts.length === pendingDrafts.length) {
+      return buildDraftIdMismatchMessage(pendingDrafts);
+    }
+    setPendingDrafts(userId, nextDrafts);
+    return `Pending email draft ${action.id} deleted.`;
   }
 
   if (action.type === "approve") {
-    if (!session.pendingEmailDraft) return "No pending email draft to approve.";
-    if (action.id && action.id !== session.pendingEmailDraft.id) {
-      return "Draft ID does not match the pending draft.";
+    if (!action.id) {
+      if (pendingDrafts[0]?.id) {
+        return `Please include the draft ID. Example: approve email ${pendingDrafts[0].id}`;
+      }
+      return "Please include the draft ID. Example: approve email <draftId>";
+    }
+    if (!pendingDrafts.length) return "No pending email draft to approve.";
+    const draft = pendingDrafts.find((d) => d.id === action.id);
+    if (!draft) {
+      return buildDraftIdMismatchMessage(pendingDrafts);
     }
     const { sendApprovedEmail } = await import("./emailAgent.ts");
     await sendApprovedEmail({
-      to: session.pendingEmailDraft.to,
-      subject: session.pendingEmailDraft.subject,
-      body: session.pendingEmailDraft.body,
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
     });
-    updateSession(userId, { pendingEmailDraft: undefined });
-    return `Email sent to ${session.pendingEmailDraft.to}.`;
+    setPendingDrafts(
+      userId,
+      pendingDrafts.filter((d) => d.id !== action.id),
+    );
+    return `Email sent to ${draft.to}.`;
   }
 
   const { to, subject, body } = await buildEmailDraftFromQuery(query, userId);
   const { draft } = await (await import("./emailAgent.ts")).draftEmail(to, subject, body);
   const draftId = `d${Date.now()}`;
-  updateSession(userId, {
-    pendingEmailDraft: {
+  setPendingDrafts(userId, [
+    ...pendingDrafts,
+    {
       id: draftId,
       to: draft.to,
       subject: draft.subject,
       body: draft.body,
       createdAt: new Date().toISOString(),
     },
-  });
+  ]);
   return buildDraftPreview(draftId, draft.to, draft.subject, draft.body);
 }
 
@@ -413,6 +578,9 @@ export async function runAction(request: RequestPayload) {
     case "search_active_properties": {
       const query = typeof payload.query === "string" ? payload.query : "";
       const userId = typeof payload.userId === "string" && payload.userId ? payload.userId : "default";
+      if (hasMalformedPriceToken(query)) {
+        return 'Price amount is missing before "k/m". Please resend like "under 900k" (without $) or "under 900000".';
+      }
       const parsedPage = Number(payload.page ?? 1);
       const parsedLimit = Number(payload.limit ?? 10);
       const page = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;

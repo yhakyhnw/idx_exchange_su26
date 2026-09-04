@@ -79,7 +79,7 @@ def main() -> int:
             print(completed.stderr.strip(), file=sys.stderr)
         return completed.returncode
 
-    print(completed.stdout.strip())
+    print((completed.stdout or "").strip() or "There are no returned results.")
     return 0
 
 

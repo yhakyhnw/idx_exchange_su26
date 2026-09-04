@@ -15,6 +15,12 @@ test("detectIntentFlags identifies mixed search and market intent", () => {
   assert.equal(flags.isMarket, true);
 });
 
+test("detectIntentFlags keeps definition-only DOM query out of market intent", () => {
+  const flags = detectIntentFlags("Explain what DOM means.");
+  assert.equal(flags.isKnowledge, true);
+  assert.equal(flags.isMarket, false);
+});
+
 test("extractSearchQueryForMixed trims market clause from search side", () => {
   const query = "Find me affordable homes in Pasadena and tell me whether prices are rising";
   const searchQuery = extractSearchQueryForMixed(query);
