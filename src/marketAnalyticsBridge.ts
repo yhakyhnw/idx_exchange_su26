@@ -34,7 +34,7 @@ function extractLimit(query: string): number {
   const match = query.toLowerCase().match(/top\s+(\d+)/);
   if (!match) return 25;
   const value = Number(match[1]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 25;
+  return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 50) : 25;
 }
 
 function inferGroupBy(query: string): "city" | "zip" | "property_type" {

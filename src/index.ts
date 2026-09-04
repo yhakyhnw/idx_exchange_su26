@@ -22,6 +22,7 @@ type RequestPayload = {
   action: string;
   payload?: Record<string, unknown>;
 };
+const MAX_RESULT_ROWS = 50;
 
 export type OrchestratorIntent =
   | "search"
@@ -71,8 +72,41 @@ export function extractKnowledgeQueryForMixed(query: string): string {
   return query;
 }
 
-async function classifyIntent(query: string): Promise<OrchestratorIntent> {
+function hasStrongMarketAnalyticsSignal(query: string): boolean {
+  const q = query.toLowerCase();
+  return /\b(rising|falling|trend|trends|inventory|list-to-close|list to close|last\s+\d+\s*(months?|weeks?|years?)|over\s+the\s+last|month over month|mom|yoy|year over year|median price|average price)\b/.test(
+    q,
+  );
+}
+
+function isDefinitionStyleKnowledgeQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return /\b(what is|what does|define|meaning|explain)\b/.test(q);
+}
+
+export async function classifyIntent(query: string): Promise<OrchestratorIntent> {
   const flags = detectIntentFlags(query);
+  const strongMarketSignal = hasStrongMarketAnalyticsSignal(query);
+  const definitionStyleKnowledge = isDefinitionStyleKnowledgeQuery(query);
+
+  // Definition-style questions should route to RAG unless they also ask for analytics.
+  if (
+    flags.isKnowledge &&
+    definitionStyleKnowledge &&
+    !flags.isSearch &&
+    !flags.isRecommend &&
+    !flags.isEmail &&
+    !strongMarketSignal
+  ) {
+    return "knowledge";
+  }
+
+  // Email workflow requests should route to email unless explicitly mixed with
+  // property search, recommendations, or knowledge Q&A.
+  if (flags.isEmail && !flags.isSearch && !flags.isRecommend && !flags.isKnowledge) {
+    return "email";
+  }
+
   if (
     flags.isKnowledge &&
     !flags.isSearch &&
@@ -120,8 +154,156 @@ async function ragAgent(query: string): Promise<unknown> {
   return await runRagKnowledgeFromQuery(query);
 }
 
-async function emailDraftAgent(): Promise<unknown> {
-  return "WIP";
+function extractRecipientEmail(query: string): string | null {
+  const match = query.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] ?? null;
+}
+
+function htmlFromText(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<pre>${escaped}</pre>`;
+}
+
+function buildDraftPreview(id: string, to: string, subject: string, body: string): string {
+  return [
+    "Email draft queued (pending approval).",
+    `Draft ID: ${id}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "Preview:",
+    body,
+    `Reply with: approve email ${id}`,
+    `Or: cancel email ${id}`,
+  ].join("\n");
+}
+
+function parseDraftAction(query: string): { type: "approve" | "cancel" | "draft"; id?: string } {
+  const trimmed = query.trim();
+  const approve = trimmed.match(/^approve email(?:\s+([A-Za-z0-9_-]+))?$/i);
+  if (approve) return { type: "approve", id: approve[1] };
+  const cancel = trimmed.match(/^cancel email(?:\s+([A-Za-z0-9_-]+))?$/i);
+  if (cancel) return { type: "cancel", id: cancel[1] };
+  return { type: "draft" };
+}
+
+async function buildEmailDraftFromQuery(query: string, userId: string): Promise<{
+  to: string;
+  subject: string;
+  body: string;
+}> {
+  const recipient = extractRecipientEmail(query);
+  if (!recipient) {
+    throw new Error("Please include a recipient email in your request.");
+  }
+  const lower = query.toLowerCase();
+  const session = getSession(userId);
+
+  if (lower.includes("weekly") || lower.includes("market report")) {
+    const marketText = await marketStatsAgent(query);
+    return {
+      to: recipient,
+      subject: "Weekly Market Report",
+      body: htmlFromText(String(marketText)),
+    };
+  }
+
+  if (lower.includes("listing alert") || lower.includes("listing alerts")) {
+    const parsedFilters = await parsePropertyQuery(query);
+    const filters = mergeSessionWithParsedFilters(session, parsedFilters);
+    const rows = await searchActiveListings(filters, 1, 10);
+    const listingsText = formatActiveListingsForWhatsapp(rows, 1, 10);
+    return {
+      to: recipient,
+      subject: "New Listing Alert",
+      body: htmlFromText(listingsText),
+    };
+  }
+
+  if (lower.includes("property summary")) {
+    const target = session.lastResults?.[0];
+    if (!target) {
+      throw new Error("No prior listing found. Run a property search first.");
+    }
+    const recs = await runHybridRecommendationFromAddress(target.L_Address);
+    const summary = [
+      `Address: ${target.L_Address}, ${target.L_City} ${target.L_Zip}`,
+      `Price: $${target.price.toLocaleString()}`,
+      `Beds/Baths: ${target.beds}/${target.baths}`,
+      `Sqft: ${target.sqft}`,
+      `Photos: ${target.PhotoCount}`,
+      "",
+      "Comparable snapshot:",
+      String(recs),
+    ].join("\n");
+    return {
+      to: recipient,
+      subject: "Property Summary",
+      body: htmlFromText(summary),
+    };
+  }
+
+  if (lower.includes("recommendation digest") || lower.includes("digest")) {
+    const target = session.lastResults?.[0];
+    if (!target) {
+      throw new Error("No prior listing found. Run a property search first.");
+    }
+    const recs = await runHybridRecommendationFromAddress(target.L_Address);
+    return {
+      to: recipient,
+      subject: "Personalized Recommendation Digest",
+      body: htmlFromText(String(recs)),
+    };
+  }
+
+  throw new Error(
+    "Email request not recognized. Use one of: listing alert, weekly market report, property summary, recommendation digest.",
+  );
+}
+
+async function emailDraftAgent(query: string, userId: string): Promise<unknown> {
+  const action = parseDraftAction(query);
+  const session = getSession(userId);
+
+  if (action.type === "cancel") {
+    if (!session.pendingEmailDraft) return "No pending email draft to cancel.";
+    if (action.id && action.id !== session.pendingEmailDraft.id) {
+      return "Draft ID does not match the pending draft.";
+    }
+    updateSession(userId, { pendingEmailDraft: undefined });
+    return "Pending email draft canceled.";
+  }
+
+  if (action.type === "approve") {
+    if (!session.pendingEmailDraft) return "No pending email draft to approve.";
+    if (action.id && action.id !== session.pendingEmailDraft.id) {
+      return "Draft ID does not match the pending draft.";
+    }
+    const { sendApprovedEmail } = await import("./emailAgent.ts");
+    await sendApprovedEmail({
+      to: session.pendingEmailDraft.to,
+      subject: session.pendingEmailDraft.subject,
+      body: session.pendingEmailDraft.body,
+    });
+    updateSession(userId, { pendingEmailDraft: undefined });
+    return `Email sent to ${session.pendingEmailDraft.to}.`;
+  }
+
+  const { to, subject, body } = await buildEmailDraftFromQuery(query, userId);
+  const { draft } = await (await import("./emailAgent.ts")).draftEmail(to, subject, body);
+  const draftId = `d${Date.now()}`;
+  updateSession(userId, {
+    pendingEmailDraft: {
+      id: draftId,
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+      createdAt: new Date().toISOString(),
+    },
+  });
+  return buildDraftPreview(draftId, draft.to, draft.subject, draft.body);
 }
 
 function toText(value: unknown): string {
@@ -167,7 +349,7 @@ export async function orchestrate(query: string, userId: string) {
       ]);
     case "email":
       return formatCombinedResponse([
-        { label: "Reply from Email Draft Agent", value: await emailDraftAgent() },
+        { label: "Reply from Email Draft Agent", value: await emailDraftAgent(query, userId) },
       ]);
     case "mixed": {
       const flags = detectIntentFlags(query);
@@ -192,7 +374,7 @@ export async function orchestrate(query: string, userId: string) {
         parallelLabels.push("Reply from RAG Agent");
       }
       if (flags.isEmail) {
-        parallelTasks.push(emailDraftAgent());
+        parallelTasks.push(emailDraftAgent(query, userId));
         parallelLabels.push("Reply from Email Draft Agent");
       }
       const parallelResults = await Promise.all(parallelTasks);
@@ -234,7 +416,7 @@ export async function runAction(request: RequestPayload) {
       const parsedPage = Number(payload.page ?? 1);
       const parsedLimit = Number(payload.limit ?? 10);
       const page = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
-      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), MAX_RESULT_ROWS) : 10;
       const parsedFilters = await parsePropertyQuery(query);
       const session = getSession(userId);
       const filters = mergeSessionWithParsedFilters(session, parsedFilters);
@@ -280,7 +462,7 @@ export async function runAction(request: RequestPayload) {
       const parsedLimit = Number(payload.limit ?? 10);
       const parsedMonths = Number(payload.months ?? 12);
       const page = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
-      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), MAX_RESULT_ROWS) : 10;
       const months = Number.isFinite(parsedMonths) && parsedMonths > 0 ? Math.floor(parsedMonths) : 12;
 
       const parsedFilters = await parsePropertyQuery(query);
@@ -336,6 +518,12 @@ export async function runAction(request: RequestPayload) {
       const query = typeof payload.query === "string" ? payload.query : "";
       const userId = typeof payload.userId === "string" && payload.userId ? payload.userId : "default";
       return await orchestrate(query, userId);
+    }
+    case "whatsapp_message": {
+      const message = typeof payload.query === "string" ? payload.query : "";
+      const userId = typeof payload.userId === "string" && payload.userId ? payload.userId : "default";
+      const { onWhatsAppMessage } = await import("./whatsappHandler.ts");
+      return await onWhatsAppMessage(message, userId);
     }
     default:
       return { status: "WIP", action: request.action };

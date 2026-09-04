@@ -57,7 +57,7 @@ limit = 10) {
 
 export function formatActiveListingsForWhatsapp(rows: ListingRow[], page: number, limit: number): string {
   if (!rows.length) {
-    return "No active listings matched your filters. Try widening city/price/bed filters.";
+    return "There are no returned results.";
   }
 
   const pageText = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;

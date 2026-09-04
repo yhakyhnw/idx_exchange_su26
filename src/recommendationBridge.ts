@@ -66,7 +66,7 @@ export async function runHybridRecommendationFromAddress(targetAddress: string):
     const payload = JSON.parse((result.stdout || "").trim()) as RecommendationResponse;
     if (payload.error) return payload.error;
     const rows = payload.results ?? [];
-    if (!rows.length) return "No recommendations found.";
+    if (!rows.length) return "There are no returned results.";
 
     const lines = [`Top ${rows.length} similar active listings:`];
     for (const row of rows) {

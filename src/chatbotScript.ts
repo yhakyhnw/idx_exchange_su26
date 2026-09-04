@@ -14,6 +14,13 @@ export interface UserSession {
   maxHoa?: number;
   hasView?: string;
   lastResults?: ListingRow[];
+  pendingEmailDraft?: {
+    id: string;
+    to: string;
+    subject: string;
+    body: string;
+    createdAt: string;
+  };
   conversationStep: number;
 }
 

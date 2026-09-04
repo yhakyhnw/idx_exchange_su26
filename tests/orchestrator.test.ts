@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  classifyIntent,
   detectIntentFlags,
   extractKnowledgeQueryForMixed,
   extractSearchQueryForMixed,
-  orchestrate,
 } from "../src/index.ts";
 
 test("detectIntentFlags identifies mixed search and market intent", () => {
@@ -27,7 +27,12 @@ test("extractKnowledgeQueryForMixed trims to knowledge clause", () => {
   assert.equal(knowledgeQuery, "explain what DOM means");
 });
 
-test("orchestrate returns WIP for email-only intent", async () => {
-  const result = await orchestrate("Draft an email summary for this client", "test-user");
-  assert.equal(result, "Reply from Email Draft Agent:\nWIP");
+test("classifyIntent identifies email-only intent", async () => {
+  const intent = await classifyIntent("Send email to test@example.com");
+  assert.equal(intent, "email");
+});
+
+test("classifyIntent routes definition-style DOM query to knowledge", async () => {
+  const intent = await classifyIntent("Explain what days on market (DOM) means.");
+  assert.equal(intent, "knowledge");
 });
