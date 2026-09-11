@@ -206,10 +206,3 @@ node --test tests/parsePropertyQuery.test.ts tests/parseSoldPropertyQuery.test.t
 3. Recommend similar comps
 4. Explain what comp means
 5. Draft email to example@example.com with a weekly market report for Los Angeles
-
-## Data notes
-
-- Actives: `rets_property` (`L_Status = 'Active'`).
-- Solds: `california_sold` (`PropertyType = 'Residential'`).
-- Analytics ignore bogus future close dates by capping at `CURDATE()`.
-- Search results are ordered by list price ascending (cheapest first in the band).
