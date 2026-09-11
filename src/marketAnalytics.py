@@ -82,12 +82,9 @@ def get_weekly_sales_summary(city: str, weeks: int = 8, as_of: pd.Timestamp | No
     df = pd.read_sql(query, engine, params=(city, as_of_date, as_of_date, weeks))
     if "week_start" in df.columns:
         df["week_start"] = pd.to_datetime(df["week_start"], errors="coerce").dt.strftime("%Y-%m-%d")
-    end = as_of - pd.Timedelta(days=int(as_of.weekday()))
-    week_range = pd.date_range(end=end, periods=weeks, freq="7D").strftime("%Y-%m-%d")
-    full_weeks = pd.DataFrame({"week_start": week_range})
-    df = full_weeks.merge(df, on="week_start", how="left")
-    df["sales"] = df["sales"].fillna(0).astype(int)
-    df.loc[df["sales"] == 0, ["avg_price", "avg_dom"]] = None
+    if df.empty or "sales" not in df.columns:
+        return df
+    df = df[df["sales"].fillna(0) > 0].copy()
     df["price_change_pct"] = pd.to_numeric(df["avg_price"], errors="coerce").pct_change() * 100
     return df
 
@@ -111,15 +108,9 @@ def get_price_trend(city: str, months: int = 24, as_of: pd.Timestamp | None = No
     ORDER BY month
     """
     df = pd.read_sql(query, engine, params=(city, as_of_date, as_of_date, months))
-    month_range = pd.date_range(
-        end=as_of.replace(day=1),
-        periods=months,
-        freq="MS",
-    ).strftime("%Y-%m")
-    full_months = pd.DataFrame({"month": month_range})
-    df = full_months.merge(df, on="month", how="left")
-    df["sales"] = df["sales"].fillna(0).astype(int)
-    df.loc[df["sales"] == 0, ["avg_price", "avg_dom"]] = None
+    if df.empty or "sales" not in df.columns:
+        return df
+    df = df[df["sales"].fillna(0) > 0].copy()
     df["price_change_pct"] = pd.to_numeric(df["avg_price"], errors="coerce").pct_change() * 100
     return df
 

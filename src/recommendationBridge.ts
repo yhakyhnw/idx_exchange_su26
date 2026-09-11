@@ -9,9 +9,6 @@ type RecommendationRow = {
   LM_Dec_3?: number | null;
   LM_Int2_3?: number | null;
   similarity_score?: number | null;
-  comp_price?: number | null;
-  comp_count?: number | null;
-  delta_pct?: number | null;
 };
 
 type RecommendationResponse = {
@@ -23,14 +20,6 @@ type RecommendationResponse = {
 function formatMoney(value: unknown): string {
   const num = Number(value);
   return Number.isFinite(num) ? `$${Math.round(num).toLocaleString()}` : "N/A";
-}
-
-function formatAssessment(deltaPct: unknown): string {
-  const value = Number(deltaPct);
-  if (!Number.isFinite(value)) return "no comp signal";
-  if (value <= -5) return "below comp";
-  if (value >= 5) return "above comp";
-  return "near comp";
 }
 
 export async function runHybridRecommendationFromAddress(targetAddress: string): Promise<string> {
@@ -63,10 +52,8 @@ export async function runHybridRecommendationFromAddress(targetAddress: string):
       const baths = row.LM_Dec_3 ?? "-";
       const sqft = row.LM_Int2_3 ? `${Number(row.LM_Int2_3).toLocaleString()} sqft` : "-";
       const score = Number(row.similarity_score);
-      const delta = Number(row.delta_pct);
-      const compCount = Number(row.comp_count);
       lines.push(
-        `- ${address} ${cityZip} | ${formatMoney(row.L_SystemPrice)} | ${beds} bd / ${baths} ba | ${sqft} | score ${Number.isFinite(score) ? score.toFixed(2) : "N/A"} | comp ${formatMoney(row.comp_price)} (${Number.isFinite(compCount) ? compCount : 0}) | delta ${Number.isFinite(delta) ? `${delta.toFixed(1)}%` : "N/A"} (${formatAssessment(row.delta_pct)})`,
+        `- ${address} ${cityZip} | ${formatMoney(row.L_SystemPrice)} | ${beds} bd / ${baths} ba | ${sqft} | score ${Number.isFinite(score) ? score.toFixed(2) : "N/A"}`,
       );
     }
     return lines.join("\n");

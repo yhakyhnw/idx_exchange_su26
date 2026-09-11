@@ -5,6 +5,27 @@ import sys
 from pathlib import Path
 from urllib.parse import quote_plus
 
+
+def _add_optional_site_packages() -> None:
+    extra = os.environ.get("PYTHON_SITE_PACKAGES")
+    if extra:
+        site = Path(extra)
+        if site.is_dir() and str(site) not in sys.path:
+            sys.path.append(str(site))
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if not conda_prefix:
+        return
+    lib = Path(conda_prefix) / "lib"
+    if not lib.is_dir():
+        return
+    for site in sorted(lib.glob("python*/site-packages")):
+        site_str = str(site)
+        if site_str not in sys.path:
+            sys.path.append(site_str)
+
+
+_add_optional_site_packages()
+
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
@@ -13,21 +34,6 @@ try:
     from openai import OpenAI
 except ModuleNotFoundError:
     OpenAI = None
-
-# OpenClaw runtime can use a different Python path than user shell.
-for extra_site in [
-    "/opt/anaconda3/lib/python3.14/site-packages",
-    "/opt/anaconda3/lib/python3.13/site-packages",
-]:
-    if extra_site not in sys.path and Path(extra_site).exists():
-        sys.path.append(extra_site)
-
-if OpenAI is None:
-    try:
-        from openai import OpenAI as _OpenAI
-        OpenAI = _OpenAI
-    except ModuleNotFoundError:
-        OpenAI = None
 
 try:
     from pypdf import PdfReader

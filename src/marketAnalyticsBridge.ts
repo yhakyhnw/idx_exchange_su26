@@ -130,6 +130,14 @@ function inferAction(query: string): AnalyticsAction {
   if (lower.includes("trend")) {
     return "price_trend";
   }
+  if (
+    lower.includes("market stat") ||
+    lower.includes("statistics") ||
+    lower.includes("over the last") ||
+    /\blast\s+\d+\s*(months?|weeks?|years?)\b/.test(lower)
+  ) {
+    return "price_trend";
+  }
   return "city_snapshot";
 }
 

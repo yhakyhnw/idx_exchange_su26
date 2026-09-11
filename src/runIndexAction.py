@@ -15,32 +15,24 @@ def resolve_node_binary() -> str:
     if from_path:
         return from_path
 
-    # If current environment (often conda) hides Node, ask login shell.
-    try:
-        login_shell = subprocess.run(
-            ["/bin/zsh", "-lc", "command -v node"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        shell_path = login_shell.stdout.strip()
-        if shell_path and Path(shell_path).exists():
-            return shell_path
-    except Exception:
-        pass
-
-    candidates = [
-        "/opt/homebrew/bin/node",
-        "/usr/local/bin/node",
-        "/opt/local/bin/node",
-        "/opt/anaconda3/bin/node",
-    ]
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate
+    # If the current environment (often conda) hides Node, ask the login shell.
+    shell = os.environ.get("SHELL")
+    if shell and Path(shell).exists():
+        try:
+            login_shell = subprocess.run(
+                [shell, "-lc", "command -v node"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            shell_path = login_shell.stdout.strip()
+            if shell_path and Path(shell_path).exists():
+                return shell_path
+        except Exception:
+            pass
 
     raise FileNotFoundError(
-        "Node binary not found. Install Node.js or add `node` to PATH."
+        "Node binary not found. Install Node.js, add `node` to PATH, or set NODE_BINARY."
     )
 
 

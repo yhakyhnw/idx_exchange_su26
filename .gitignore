@@ -5,3 +5,8 @@ node_modules/
 data/
 src/userSessions.json
 knowledge/rag_index.json
+knowledge/~$*
+__pycache__/
+*.pyc
+media/inbound/
+openclaw/

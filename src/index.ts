@@ -59,10 +59,13 @@ export function detectIntentFlags(query: string): IntentFlags {
     /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close|weekly)\b/.test(
       q,
     );
+  const hasSearchVerb = /\b(find|show)\b/.test(q);
+  const hasSearchNoun = /\b(homes?|houses?|condos?|properties|listings?)\b/.test(q);
+  const isRecommend = /\b(similar|recommend|comparable|comps)\b/.test(q);
   return {
-    isSearch: /\b(find|show|homes?|houses?|condos?|properties|listings?)\b/.test(q),
+    isSearch: hasSearchVerb || (hasSearchNoun && !isRecommend),
     isMarket: hasMarketKeyword && !(hasDefinitionCue && !hasStrongMarketCue),
-    isRecommend: /\b(similar|recommend|comparable|comps)\b/.test(q),
+    isRecommend,
     isKnowledge: /\b(what is|what does|define|meaning|column|field|explain)\b/.test(q),
     isEmail:
       /\bapprove email\b/.test(q) ||
@@ -74,7 +77,13 @@ export function detectIntentFlags(query: string): IntentFlags {
 
 export function extractSearchQueryForMixed(query: string): string {
   const lower = query.toLowerCase();
-  const splitCandidates = [" and tell me ", " and whether ", " and also ", " plus "];
+  const splitCandidates = [
+    " and tell me ",
+    " and whether ",
+    " and also ",
+    " plus ",
+    " and give me ",
+  ];
   for (const token of splitCandidates) {
     const idx = lower.indexOf(token);
     if (idx > 0) return query.slice(0, idx).trim();
@@ -102,7 +111,19 @@ function isDefinitionStyleKnowledgeQuery(query: string): boolean {
   return /\b(what is|what does|define|meaning|explain)\b/.test(q);
 }
 
-export async function classifyIntent(query: string): Promise<OrchestratorIntent> {
+async function isSearchFilterRefinement(query: string, userId: string): Promise<boolean> {
+  const session = getSession(userId);
+  if (!session.lastResults?.length) return false;
+  const parsed = await parsePropertyQuery(query);
+  const addedBedsOrBaths = parsed.beds != null || parsed.baths != null;
+  if (!addedBedsOrBaths) return false;
+  const cityUnchanged = parsed.city == null || parsed.city === session.city;
+  const maxUnchanged = parsed.maxPrice == null || parsed.maxPrice === session.maxPrice;
+  const minUnchanged = parsed.minPrice == null || parsed.minPrice === session.minPrice;
+  return cityUnchanged && maxUnchanged && minUnchanged;
+}
+
+export async function classifyIntent(query: string, userId?: string): Promise<OrchestratorIntent> {
   const flags = detectIntentFlags(query);
   const strongMarketSignal = hasStrongMarketAnalyticsSignal(query);
   const definitionStyleKnowledge = isDefinitionStyleKnowledgeQuery(query);
@@ -142,7 +163,20 @@ export async function classifyIntent(query: string): Promise<OrchestratorIntent>
     flags.isEmail,
   ].filter(Boolean).length;
 
-  if (hitCount > 1) return "mixed";
+  if (hitCount > 1) {
+    if (
+      userId &&
+      flags.isSearch &&
+      flags.isMarket &&
+      !flags.isRecommend &&
+      !flags.isEmail &&
+      !flags.isKnowledge &&
+      (await isSearchFilterRefinement(query, userId))
+    ) {
+      return "search";
+    }
+    return "mixed";
+  }
   if (flags.isEmail) return "email";
   if (flags.isRecommend) return "recommend";
   if (flags.isKnowledge) return "knowledge";
@@ -516,11 +550,14 @@ function formatCombinedResponse(sections: Array<{ label: string; value: unknown 
 }
 
 export async function orchestrate(query: string, userId: string) {
-  const intent = await classifyIntent(query);
+  const intent = await classifyIntent(query, userId);
   switch (intent) {
     case "search":
       return formatCombinedResponse([
-        { label: "Reply from Property Search Agent", value: await propertySearchAgent(query, userId) },
+        {
+          label: "Reply from Property Search Agent",
+          value: await propertySearchAgent(extractSearchQueryForMixed(query), userId),
+        },
       ]);
     case "market":
       return formatCombinedResponse([

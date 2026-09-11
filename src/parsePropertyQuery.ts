@@ -20,7 +20,7 @@ export async function parsePropertyQuery(query: string) {
     query.match(/under\s+hoa\s*\$?([\d,]+)/i);
   const bedsMatch = query.match(/(\d+)[\s-]*(bd|br|bed|beds|bedroom|bedrooms)/i);
   const bathsMatch = query.match(/(\d+(?:\.5)?)[\s-]*(ba|bath|baths|bathroom)/i);
-  const exactBaths = bathsMatch ? /\bonly\b/i.test(query) : null;
+  const exactBaths = bathsMatch ? /\b(only|exactly)\b/i.test(query) : null;
   const sqftMatch = query.match(/(\d+)[\s,]*(sqft|sq ft|square feet)/i);
   const poolMatch = /pool/i.test(query);
   const noViewMatch = /no\s+view/i.test(query);

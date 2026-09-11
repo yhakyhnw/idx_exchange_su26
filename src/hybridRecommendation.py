@@ -100,34 +100,6 @@ def calculate_similarity_score(
     return round(score, 2)
 
 
-def validate_with_comps(city: str, sqft: int, price: int) -> dict:
-    engine = build_engine()
-    sql = """
-    SELECT
-      AVG(ClosePrice / NULLIF(LivingArea,0)) AS avg_ppsf,
-      COUNT(*) AS comp_count
-    FROM california_sold
-    WHERE City = %s AND PropertyType = 'Residential'
-      AND LivingArea BETWEEN %s AND %s
-      AND CloseDate >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-    """
-    lower_sqft = int(sqft * 0.8)
-    upper_sqft = int(sqft * 1.2)
-    df = pd.read_sql(sql, engine, params=(city, lower_sqft, upper_sqft))
-
-    avg_ppsf = float((df.iloc[0].get("avg_ppsf") if not df.empty else 0) or 0)
-    comp_count = int((df.iloc[0].get("comp_count") if not df.empty else 0) or 0)
-    comp_price = round(avg_ppsf * sqft) if avg_ppsf > 0 and sqft > 0 else 0
-    delta_pct = round(((price - comp_price) / comp_price) * 100, 1) if comp_price > 0 else 0.0
-
-    return {
-        "comp_price": comp_price,
-        "list_price": int(price),
-        "comp_count": comp_count,
-        "delta_pct": delta_pct,
-    }
-
-
 def listing_text(row: dict) -> str:
     return (
         f"{row.get('L_Type_', '')} in {row.get('L_City', '')}. "
@@ -172,12 +144,7 @@ def main():
     for candidate in candidates:
         candidate_emb = get_embedding(listing_text(candidate))
         sim_score = calculate_similarity_score(target_row, candidate, target_emb, candidate_emb)
-        comp = validate_with_comps(
-            str(candidate.get("L_City") or ""),
-            int(float(candidate.get("LM_Int2_3") or 0)),
-            int(float(candidate.get("L_SystemPrice") or 0)),
-        )
-        scored.append({**candidate, "similarity_score": sim_score, **comp})
+        scored.append({**candidate, "similarity_score": sim_score})
 
     scored.sort(key=lambda item: item["similarity_score"], reverse=True)
     top_k = args.top_k if args.top_k > 0 else 5

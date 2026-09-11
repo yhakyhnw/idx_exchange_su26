@@ -230,3 +230,13 @@ test("baths only uses exact equality", async () => {
   assert.match(sql, /LM_Dec_3 = \?/);
   assert.equal(params.includes(4), true);
 });
+
+test("exactly N baths uses exact equality", async () => {
+  const parsed = await parsePropertyQuery(
+    "Find homes in Los Angeles between 2M and 3M with exactly 4 baths",
+  );
+  const { sql } = buildSearchActiveListingsQuery(parsed);
+  assert.equal(parsed.baths, 4);
+  assert.equal(parsed.exactBaths, true);
+  assert.match(sql, /LM_Dec_3 = \?/);
+});

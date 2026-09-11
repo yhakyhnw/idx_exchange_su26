@@ -107,8 +107,8 @@ export function formatForWhatsApp(result: AgentResult | string, question = ""): 
         const cards = listingLines.slice(0, 5).map((line) => {
           const parts = line.replace(/^\s*-\s*/, "").split(" | ");
           if (parts.length < 4) return line;
-          const [addressCity, price, bedsBaths, sqft, score, comp, delta] = parts;
-          const metrics = [score, comp, delta].filter(Boolean).join(" | ");
+          const [addressCity, price, bedsBaths, sqft, score] = parts;
+          const metrics = [score].filter(Boolean).join(" | ");
           return `🏠 *${addressCity}*\n💰 ${price} | 🛏 ${bedsBaths} | 📐 ${sqft}${metrics ? `\n📌 ${metrics}` : ""}`;
         });
         return [withQuestion("Recommendation Agent"), cards.join("\n\n")].join("\n");
@@ -165,7 +165,7 @@ function getAgentScopedQuestion(agent: string, question: string): string {
   if (!q) return "";
 
   const clauses = q
-    .split(/,\s*|\s+and\s+/i)
+    .split(/,\s+|\s+and\s+(?=tell me|give me|whether|also\b|explain|recommend)/i)
     .map((part) => part.trim())
     .filter(Boolean);
 
