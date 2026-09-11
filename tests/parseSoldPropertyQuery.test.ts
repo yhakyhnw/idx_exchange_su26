@@ -55,15 +55,25 @@ test("parses sold query with HOA cap", async () => {
   assert.equal(parsed.type, "Condominium");
 });
 
+test("parses sold between price range", async () => {
+  const parsed = await runSoldParse("Find sold homes in Los Angeles between 2M and 3M");
+
+  assert.equal(parsed.city, "Los Angeles");
+  assert.equal(parsed.minPrice, 2000000);
+  assert.equal(parsed.maxPrice, 3000000);
+});
+
 test("returns nulls when sold query has no filter details", async () => {
   const parsed = await runSoldParse("show sold properties");
 
   assert.deepEqual(parsed, {
     city: null,
+    minPrice: null,
     maxPrice: null,
     maxHoa: null,
     beds: null,
     baths: null,
+    exactBaths: null,
     sqft: null,
     type: null,
     pool: null,

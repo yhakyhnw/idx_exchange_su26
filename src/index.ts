@@ -56,7 +56,7 @@ export function detectIntentFlags(query: string): IntentFlags {
       q,
     );
   const hasMarketKeyword =
-    /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close)\b/.test(
+    /\b(market|trend|rising|falling|price|prices|dom|days on market|inventory|list-to-close|list to close|weekly)\b/.test(
       q,
     );
   return {
@@ -189,9 +189,7 @@ function buildDraftPreview(id: string, to: string, subject: string, body: string
   const previewText = body
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/?[^>]+>/g, "")
-    .split(/\r?\n/)
-    .slice(0, 8)
-    .join("\n");
+    .trim();
   return [
     "Email draft queued (pending approval).",
     `Draft ID: ${id}`,
@@ -249,6 +247,7 @@ function normalizeEmailCommandText(query: string): string {
 function extractEmailIntentQuery(query: string): string {
   const cleaned = normalizeEmailCommandText(query)
     .replace(/\bemail\s+to\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
+    .replace(/\bto\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
     .replace(/\bdraft\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -256,7 +255,9 @@ function extractEmailIntentQuery(query: string): string {
 }
 
 function extractCityFromText(query: string): string | null {
-  const match = query.match(/(?:\bin\b|\bfor\b)\s+([A-Za-z\s]+?)(?:\s+over|\s+last|\s+with|\s+and|[?.!,]|$)/i);
+  const match = query.match(
+    /(?:\bin\b|\bfor\b)\s+([A-Za-z\s]+?)(?:\s+over|\s+last|\s+with|\s+and|\s+to|\s+between|[?.!,]|$)/i,
+  );
   const raw = match?.[1]?.trim();
   if (!raw) return null;
   const cityAliasMap: Record<string, string> = {
@@ -292,7 +293,19 @@ async function getEmailSourceContent(query: string, userId: string): Promise<{ a
       content: String(await propertySearchAgent(intentQuery, userId)),
     };
   }
-  if (lower.includes("weekly") || lower.includes("market report")) {
+  if (lower.includes("weekly")) {
+    const city = extractCityFromText(intentQuery);
+    const weeklyQuery = city
+      ? `weekly sales summary in ${city} over the last 8 weeks`
+      : "Please include a city for this weekly sales summary.";
+    return {
+      agent: "Market Stats Agent",
+      content: city
+        ? String(await marketStatsAgent(weeklyQuery))
+        : weeklyQuery,
+    };
+  }
+  if (lower.includes("market report")) {
     return {
       agent: "Market Stats Agent",
       content: String(await marketStatsAgent(buildMarketTrendPrompt(intentQuery))),
@@ -358,10 +371,18 @@ async function buildEmailDraftFromQuery(query: string, userId: string): Promise<
   const source = await getEmailSourceContent(query, userId);
   const sourcedBody = `Source Agent: ${source.agent}\n\n${source.content}`;
 
-  if (lower.includes("weekly") || lower.includes("market report")) {
+  if (lower.includes("weekly")) {
     return {
       to: recipient,
       subject: "Weekly Market Report",
+      body: htmlFromText(sourcedBody),
+    };
+  }
+
+  if (lower.includes("market report")) {
+    return {
+      to: recipient,
+      subject: "Market Report",
       body: htmlFromText(sourcedBody),
     };
   }
@@ -487,7 +508,9 @@ function capToMaxLines(text: string, maxLines = 10): string {
 function formatCombinedResponse(sections: Array<{ label: string; value: unknown }>): string {
   const output: string[] = [];
   for (const section of sections) {
-    output.push(`${section.label}:\n${capToMaxLines(toText(section.value), 10)}`);
+    const text = toText(section.value);
+    const body = section.label.includes("Email Draft Agent") ? text : capToMaxLines(text, 10);
+    output.push(`${section.label}:\n${body}`);
   }
   return output.join("\n\n---\n\n");
 }
@@ -592,9 +615,11 @@ export async function runAction(request: RequestPayload) {
 
       updateSession(userId, {
         city: filters.city ?? undefined,
+        minPrice: filters.minPrice ?? undefined,
         maxPrice: filters.maxPrice ?? undefined,
         beds: filters.beds ?? undefined,
         baths: filters.baths ?? undefined,
+        exactBaths: filters.exactBaths ?? undefined,
         type: filters.type ?? undefined,
         pool: filters.pool ?? undefined,
         sqft: filters.sqft ?? undefined,

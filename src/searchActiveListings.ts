@@ -28,11 +28,14 @@ export function buildSearchActiveListingsQuery(
 
     if (filters.city) { sql += " AND L_City = ?";
 params.push(filters.city); }
+    if (filters.minPrice) { sql += " AND L_SystemPrice >= ?";
+params.push(filters.minPrice); }
     if (filters.maxPrice) { sql += " AND L_SystemPrice <= ?";
 params.push(filters.maxPrice); }
     if (filters.beds) { sql += " AND L_Keyword2 = ?";
 params.push(filters.beds); }
-    if (filters.baths) { sql += " AND LM_Dec_3 >= ?";
+    if (filters.baths) {
+      sql += filters.exactBaths ? " AND LM_Dec_3 = ?" : " AND LM_Dec_3 >= ?";
 params.push(filters.baths); }
     if (filters.sqft) { sql += " AND LM_Int2_3 >= ?";
 params.push(filters.sqft); }

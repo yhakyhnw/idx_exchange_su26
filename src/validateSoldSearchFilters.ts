@@ -80,6 +80,15 @@ export async function validateSoldSearchFilters(
       message: "That city is not present in the sold database, would you like to try a different city?",
     };
   }
+  if (filters.minPrice !== null && isOutOfRange(filters.minPrice, validArgs.ClosePrice)) {
+    return {
+      ok: false,
+      field: "minPrice",
+      message:
+        `That sold min price is outside the current sold database range ` +
+        `${formatCurrencyRange(validArgs.ClosePrice.min, validArgs.ClosePrice.max)}.`,
+    };
+  }
   if (filters.maxPrice !== null && isOutOfRange(filters.maxPrice, validArgs.ClosePrice)) {
     return {
       ok: false,
@@ -87,6 +96,17 @@ export async function validateSoldSearchFilters(
       message:
         `That sold price is outside the current sold database range ` +
         `${formatCurrencyRange(validArgs.ClosePrice.min, validArgs.ClosePrice.max)}.`,
+    };
+  }
+  if (
+    filters.minPrice !== null &&
+    filters.maxPrice !== null &&
+    filters.minPrice > filters.maxPrice
+  ) {
+    return {
+      ok: false,
+      field: "price",
+      message: "Minimum sold price cannot be greater than maximum sold price.",
     };
   }
   if (filters.beds !== null && isOutOfRange(filters.beds, validArgs.BedroomsTotal)) {

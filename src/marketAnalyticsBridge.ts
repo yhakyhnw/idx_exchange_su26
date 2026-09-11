@@ -2,6 +2,7 @@ import { parsePropertyQuery } from "./parsePropertyQuery.ts";
 import { redactLocalPaths, spawnPythonFromSrc } from "./repoPaths.ts";
 
 type AnalyticsAction =
+  | "weekly_sales_summary"
   | "price_trend"
   | "city_snapshot"
   | "avg_median"
@@ -28,6 +29,13 @@ function extractMonths(query: string): number {
   return 12;
 }
 
+function extractWeeks(query: string): number {
+  const match = query.toLowerCase().match(/(\d+)\s*weeks?/);
+  if (!match) return 8;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 26) : 8;
+}
+
 function extractLimit(query: string): number {
   const match = query.toLowerCase().match(/top\s+(\d+)/);
   if (!match) return 25;
@@ -42,8 +50,21 @@ function inferGroupBy(query: string): "city" | "zip" | "property_type" {
   return "city";
 }
 
+function pickCity(parsedCity: string | null, fallbackCity: string | null): string | null {
+  if (parsedCity && fallbackCity) {
+    const parsed = parsedCity.toLowerCase();
+    const fallback = fallbackCity.toLowerCase();
+    if (parsed.startsWith(fallback)) return fallbackCity;
+    if (fallback.startsWith(parsed)) return parsedCity;
+    return fallbackCity;
+  }
+  return parsedCity ?? fallbackCity;
+}
+
 function extractCityFallback(query: string): string | null {
-  const match = query.match(/in\s+([A-Za-z\s]+?)(?:\s+over|\s+for|\s+last|\s+by|\?|$)/i);
+  const match = query.match(
+    /(?:\bin\b|\bfor\b)\s+([A-Za-z\s]+?)(?:\s+over|\s+last|\s+with|\s+and|\s+by|\s+to|\s+between|[?.!,]|$)/i,
+  );
   const raw = match?.[1]?.trim();
   if (!raw) return null;
   return raw
@@ -56,6 +77,9 @@ function extractCityFallback(query: string): string | null {
 function inferAction(query: string): AnalyticsAction {
   const lower = query.toLowerCase();
 
+  if (/\bweekly\b/.test(lower)) {
+    return "weekly_sales_summary";
+  }
   if (
     lower.includes("inventory") ||
     lower.includes("active count") ||
@@ -111,6 +135,7 @@ function inferAction(query: string): AnalyticsAction {
 
 function requiresCity(action: AnalyticsAction): boolean {
   return [
+    "weekly_sales_summary",
     "price_trend",
     "price_per_sqft_trend",
     "list_to_close_ratio_trend",
@@ -140,8 +165,18 @@ function formatPct(value: unknown): string {
 function formatAnalyticsForWhatsapp(response: PythonAnalyticsResponse): string {
   const rows = response.records ?? [];
   if (!rows.length) return "No market analytics data returned for that request.";
+  const asOf = typeof response.params?.as_of === "string" ? response.params.as_of : null;
+  const through = asOf ? ` through ${asOf}` : "";
 
   switch (response.action) {
+    case "weekly_sales_summary":
+      return [
+        `Weekly sales summary (${rows.length} weeks${through}):`,
+        ...rows.map(
+          (r) =>
+            `- week of ${r.week_start}: ${formatMoney(r.avg_price)} | sales ${formatNumber(r.sales)} | DOM ${formatNumber(r.avg_dom)} | WoW ${formatPct(r.price_change_pct)}`,
+        ),
+      ].join("\n");
     case "price_trend":
       return [
         `Price trend (${rows.length} months):`,
@@ -214,15 +249,17 @@ export async function runMarketAnalyticsFromQuery(query: string): Promise<string
   const parsed = await parsePropertyQuery(query);
   const action = inferAction(query);
   const months = extractMonths(query);
+  const weeks = extractWeeks(query);
   const limit = extractLimit(query);
   const groupBy = inferGroupBy(query);
-  const city = parsed.city ?? extractCityFallback(query);
+  const fallbackCity = extractCityFallback(query);
+  const city = pickCity(parsed.city, fallbackCity);
 
   if (requiresCity(action) && !city) {
     return "Please include a city for this market analytics question.";
   }
 
-  const args = [action, "--months", String(months), "--limit", String(limit)];
+  const args = [action, "--months", String(months), "--weeks", String(weeks), "--limit", String(limit)];
   if (city) args.push("--city", city);
   if (action === "avg_median") args.push("--group-by", groupBy);
 

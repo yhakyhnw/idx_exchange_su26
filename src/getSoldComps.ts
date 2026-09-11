@@ -48,6 +48,10 @@ export function buildSoldCompsQuery(
     sql += " AND CloseDate <= ?";
     params.push(filters.closeDateTo);
   }
+  if (filters.minPrice !== null) {
+    sql += " AND ClosePrice >= ?";
+    params.push(filters.minPrice);
+  }
   if (filters.maxPrice !== null) {
     sql += " AND ClosePrice <= ?";
     params.push(filters.maxPrice);
@@ -57,7 +61,7 @@ export function buildSoldCompsQuery(
     params.push(filters.beds);
   }
   if (filters.baths !== null) {
-    sql += " AND BathroomsTotalInteger >= ?";
+    sql += filters.exactBaths ? " AND BathroomsTotalInteger = ?" : " AND BathroomsTotalInteger >= ?";
     params.push(filters.baths);
   }
   if (filters.sqft !== null) {

@@ -1,9 +1,11 @@
 export type PropertyFilters = {
   city: string | null;
+  minPrice: number | null;
   maxPrice: number | null;
   maxHoa: number | null;
   beds: number | null;
   baths: number | null;
+  exactBaths: boolean | null;
   sqft: number | null;
   type: string | null;
   pool: string | null;

@@ -1,11 +1,26 @@
+function parsePriceAmount(raw: string, suffix?: string | null): number | null {
+  const value = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(value)) return null;
+  const unit = suffix?.toLowerCase();
+  if (unit === "k") return value * 1000;
+  if (unit === "m") return value * 1_000_000;
+  return value;
+}
+
 export async function parsePropertyQuery(query: string) {
-  const cityMatch = query.match(/in ([A-Za-z\s]+?)(?:\s+under|\s+with|\s+at|$)/i);
-  const priceMatch = query.match(/under \$?([\d,.]+)\s*(k|m)?/i);
+  const cityMatch = query.match(
+    /in ([A-Za-z\s]+?)(?:\s+under|\s+between|\s+with|\s+at|\s+over|\s+last|\s+for|\s+and|\s+by|\s+to|[?.!,]|$)/i,
+  );
+  const betweenMatch = query.match(
+    /between\s+\$?([\d,.]+)\s*(k|m)?\s+and\s+\$?([\d,.]+)\s*(k|m)?/i,
+  );
+  const priceMatch = betweenMatch ? null : query.match(/under \$?([\d,.]+)\s*(k|m)?/i);
   const maxHoaMatch =
     query.match(/hoa\s*(?:under|max|<=)?\s*\$?([\d,]+)/i) ??
     query.match(/under\s+hoa\s*\$?([\d,]+)/i);
   const bedsMatch = query.match(/(\d+)[\s-]*(bd|br|bed|beds|bedroom|bedrooms)/i);
   const bathsMatch = query.match(/(\d+(?:\.5)?)[\s-]*(ba|bath|baths|bathroom)/i);
+  const exactBaths = bathsMatch ? /\bonly\b/i.test(query) : null;
   const sqftMatch = query.match(/(\d+)[\s,]*(sqft|sq ft|square feet)/i);
   const poolMatch = /pool/i.test(query);
   const noViewMatch = /no\s+view/i.test(query);
@@ -37,19 +52,30 @@ export async function parsePropertyQuery(query: string) {
         .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
         .join(" ")
     : null;
-  let maxPrice = null;
-  if (priceMatch) {
-    maxPrice = Number(priceMatch[1].replace(/,/g, ""));
-    if (priceMatch[2]?.toLowerCase() === "k") maxPrice *= 1000;
-    if (priceMatch[2]?.toLowerCase() === "m") maxPrice *= 1_000_000;
+  let minPrice: number | null = null;
+  let maxPrice: number | null = null;
+  if (betweenMatch) {
+    const low = parsePriceAmount(betweenMatch[1], betweenMatch[2]);
+    const high = parsePriceAmount(betweenMatch[3], betweenMatch[4]);
+    if (low !== null && high !== null) {
+      minPrice = Math.min(low, high);
+      maxPrice = Math.max(low, high);
+    } else {
+      minPrice = low;
+      maxPrice = high;
+    }
+  } else if (priceMatch) {
+    maxPrice = parsePriceAmount(priceMatch[1], priceMatch[2]);
   }
   const maxHoa = maxHoaMatch ? Number(maxHoaMatch[1].replace(/,/g, "")) : null;
   return {
     city: outputCity,
+    minPrice,
     maxPrice,
     maxHoa,
     beds: bedsMatch ? Number(bedsMatch[1]) : null,
     baths: bathsMatch ? Number(bathsMatch[1]) : null,
+    exactBaths,
     sqft: sqftMatch ? Number(sqftMatch[1]) : null,
     type: typeKey ? typeMap[typeKey] : null,
     pool: poolMatch ? "1" : null,

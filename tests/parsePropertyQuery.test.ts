@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parsePropertyQuery } from "../src/parsePropertyQuery.ts";
 import { validateSearchFilters } from "../src/validateActiveSearchFilters.ts";
+import { buildSearchActiveListingsQuery } from "../src/searchActiveListings.ts";
 
 async function runQueryPipeline(query: string) {
   const parsed = await parsePropertyQuery(query);
@@ -46,10 +47,12 @@ test("returns nulls when filters are absent", async () => {
 
   assert.deepEqual(parsed, {
     city: null,
+    minPrice: null,
     maxPrice: null,
     maxHoa: null,
     beds: null,
     baths: null,
+    exactBaths: null,
     sqft: null,
     type: null,
     pool: null,
@@ -168,6 +171,62 @@ test("parse + validate blocks invalid city", async () => {
 
 test("parse + validate passes valid city", async () => {
   const query = "show condos in Irvine under 1m";
-  const { validation } = await runQueryPipeline(query);
+  const { parsed, validation } = await runQueryPipeline(query);
+  assert.equal(parsed.minPrice, null);
+  assert.equal(parsed.maxPrice, 1000000);
   assert.equal(validation.ok, true);
+});
+
+test("parses between price range with m suffix", async () => {
+  const query = "Find homes in Los Angeles between 2M and 3M";
+  const { parsed, validation } = await runQueryPipeline(query);
+
+  assert.equal(parsed.city, "Los Angeles");
+  assert.equal(parsed.minPrice, 2000000);
+  assert.equal(parsed.maxPrice, 3000000);
+  assert.equal(validation.ok, true);
+});
+
+test("parses between price range with k/m mix and swapped bounds", async () => {
+  const query = "Find condos in Irvine between 1.5m and 900k";
+  const { parsed, validation } = await runQueryPipeline(query);
+
+  assert.equal(parsed.city, "Irvine");
+  assert.equal(parsed.minPrice, 900000);
+  assert.equal(parsed.maxPrice, 1500000);
+  assert.equal(parsed.type, "Condominium");
+  assert.equal(validation.ok, true);
+});
+
+test("under queries still leave minPrice unset", async () => {
+  const query = "Find homes in Glendale under 900k";
+  const { parsed } = await runQueryPipeline(query);
+  assert.equal(parsed.minPrice, null);
+  assert.equal(parsed.maxPrice, 900000);
+});
+
+test("between range is applied in active search SQL", async () => {
+  const parsed = await parsePropertyQuery("Find homes in Los Angeles between 2M and 3M");
+  const { sql, params } = buildSearchActiveListingsQuery(parsed);
+  assert.match(sql, /L_SystemPrice >= \?/);
+  assert.match(sql, /L_SystemPrice <= \?/);
+  assert.equal(params.includes(2000000), true);
+  assert.equal(params.includes(3000000), true);
+});
+
+test("plain bath count stays a minimum", async () => {
+  const parsed = await parsePropertyQuery("Find homes in Los Angeles with 4 bathrooms");
+  const { sql } = buildSearchActiveListingsQuery(parsed);
+  assert.equal(parsed.baths, 4);
+  assert.equal(parsed.exactBaths, false);
+  assert.match(sql, /LM_Dec_3 >= \?/);
+});
+
+test("baths only uses exact equality", async () => {
+  const parsed = await parsePropertyQuery("4 baths only");
+  const { sql, params } = buildSearchActiveListingsQuery(parsed);
+  assert.equal(parsed.baths, 4);
+  assert.equal(parsed.exactBaths, true);
+  assert.match(sql, /LM_Dec_3 = \?/);
+  assert.equal(params.includes(4), true);
 });

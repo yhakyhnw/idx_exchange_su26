@@ -64,6 +64,15 @@ export async function validateSearchFilters(filters: PropertyFilters): Promise<V
         "That city is not present in the current database, would you like to try a different city?",
     };
   }
+  if (filters.minPrice !== null && isOutOfRange(filters.minPrice, validArgs.L_systemPrice)) {
+    return {
+      ok: false,
+      field: "minPrice",
+      message:
+        `That min price is outside the current database range ` +
+        `${formatCurrencyRange(validArgs.L_systemPrice.min, validArgs.L_systemPrice.max)}.`,
+    };
+  }
   if (filters.maxPrice !== null && isOutOfRange(filters.maxPrice, validArgs.L_systemPrice)) {
     return {
       ok: false,
@@ -71,6 +80,17 @@ export async function validateSearchFilters(filters: PropertyFilters): Promise<V
       message:
         `That max price is outside the current database range ` +
         `${formatCurrencyRange(validArgs.L_systemPrice.min, validArgs.L_systemPrice.max)}.`,
+    };
+  }
+  if (
+    filters.minPrice !== null &&
+    filters.maxPrice !== null &&
+    filters.minPrice > filters.maxPrice
+  ) {
+    return {
+      ok: false,
+      field: "price",
+      message: "Minimum price cannot be greater than maximum price.",
     };
   }
   if (filters.beds !== null && isOutOfRange(filters.beds, validArgs.L_Keyword2)) {

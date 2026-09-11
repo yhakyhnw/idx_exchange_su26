@@ -139,7 +139,11 @@ export function formatForWhatsApp(result: AgentResult | string, question = ""): 
       return trimmed;
     });
 
-    return capForWhatsApp(formattedSections.join("\n\n---\n\n"));
+    const joined = formattedSections.join("\n\n---\n\n");
+    const hasEmailDraft = formattedSections.some((section) =>
+      /Email Draft Agent reply/i.test(section),
+    );
+    return hasEmailDraft ? joined : capForWhatsApp(joined);
   }
   if (result.listings) {
     const text = result.listings

@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 
 export interface UserSession {
   city?: string;
+  minPrice?: number;
   maxPrice?: number;
   beds?: number;
   baths?: number;
+  exactBaths?: boolean;
   type?: string;
   pool?: string;
   sqft?: number;
@@ -78,7 +80,7 @@ export function clearSession(userId: string) {
 export function countCoreActiveArgs(filters: PropertyFilters): number {
   const coreValues = [
     filters.city,
-    filters.maxPrice,
+    filters.maxPrice ?? filters.minPrice,
     filters.beds,
     filters.baths,
     filters.type,
@@ -100,10 +102,13 @@ export function mergeSessionWithParsedFilters(
 
   return {
     city: parsed.city ?? session.city ?? null,
+    minPrice: parsed.minPrice ?? session.minPrice ?? null,
     maxPrice: parsed.maxPrice ?? session.maxPrice ?? null,
     maxHoa: parsed.maxHoa ?? session.maxHoa ?? null,
     beds: parsed.beds ?? session.beds ?? null,
     baths: parsed.baths ?? session.baths ?? null,
+    exactBaths:
+      parsed.baths !== null ? parsed.exactBaths : session.exactBaths ?? parsed.exactBaths ?? null,
     sqft: parsed.sqft ?? session.sqft ?? null,
     type: parsed.type ?? session.type ?? null,
     pool: normalizedPool,
@@ -114,9 +119,12 @@ export function mergeSessionWithParsedFilters(
 export function buildNarrowingPrompt(filters: PropertyFilters): string {
   const known = [
     filters.city ? `city: ${filters.city}` : null,
+    filters.minPrice !== null ? `min price: $${filters.minPrice.toLocaleString()}` : null,
     filters.maxPrice !== null ? `max price: $${filters.maxPrice.toLocaleString()}` : null,
     filters.beds !== null ? `beds: ${filters.beds}+` : null,
-    filters.baths !== null ? `baths: ${filters.baths}+` : null,
+    filters.baths !== null
+      ? `baths: ${filters.baths}${filters.exactBaths ? "" : "+"}`
+      : null,
     filters.type ? `type: ${filters.type}` : null,
     filters.pool ? `pool: ${filters.pool}` : null,
   ].filter(Boolean);

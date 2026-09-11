@@ -45,8 +45,57 @@ def build_engine():
 engine = build_engine()
 
 
+def get_market_as_of_date() -> pd.Timestamp:
+    query = """
+    SELECT MAX(CloseDate) AS as_of
+    FROM california_sold
+    WHERE PropertyType = "Residential"
+      AND CloseDate <= CURDATE()
+    """
+    df = pd.read_sql(query, engine)
+    as_of = df.iloc[0]["as_of"]
+    if as_of is None or pd.isna(as_of):
+        return pd.Timestamp.today().normalize()
+    return pd.Timestamp(as_of).normalize()
+
+
+def get_weekly_sales_summary(city: str, weeks: int = 8, as_of: pd.Timestamp | None = None):
+    as_of = (as_of or get_market_as_of_date()).normalize()
+    as_of_date = as_of.date()
+    query = """
+    SELECT
+        DATE_FORMAT(
+            DATE_SUB(CloseDate, INTERVAL WEEKDAY(CloseDate) DAY),
+            "%Y-%m-%d"
+        ) AS week_start,
+        COUNT(*) AS sales,
+        ROUND(AVG(ClosePrice), 0) AS avg_price,
+        ROUND(AVG(DaysOnMarket), 1) AS avg_dom
+    FROM california_sold
+    WHERE LOWER(TRIM(City)) = LOWER(TRIM(%s))
+      AND PropertyType = "Residential"
+      AND CloseDate <= %s
+      AND CloseDate >= DATE_SUB(%s, INTERVAL %s WEEK)
+    GROUP BY week_start
+    ORDER BY week_start
+    """
+    df = pd.read_sql(query, engine, params=(city, as_of_date, as_of_date, weeks))
+    if "week_start" in df.columns:
+        df["week_start"] = pd.to_datetime(df["week_start"], errors="coerce").dt.strftime("%Y-%m-%d")
+    end = as_of - pd.Timedelta(days=int(as_of.weekday()))
+    week_range = pd.date_range(end=end, periods=weeks, freq="7D").strftime("%Y-%m-%d")
+    full_weeks = pd.DataFrame({"week_start": week_range})
+    df = full_weeks.merge(df, on="week_start", how="left")
+    df["sales"] = df["sales"].fillna(0).astype(int)
+    df.loc[df["sales"] == 0, ["avg_price", "avg_dom"]] = None
+    df["price_change_pct"] = pd.to_numeric(df["avg_price"], errors="coerce").pct_change() * 100
+    return df
+
+
 # Monthly price trends for a city
-def get_price_trend(city: str, months: int = 24):
+def get_price_trend(city: str, months: int = 24, as_of: pd.Timestamp | None = None):
+    as_of = (as_of or get_market_as_of_date()).normalize()
+    as_of_date = as_of.date()
     query = """
     SELECT
         DATE_FORMAT(CloseDate, "%Y-%m") AS month,
@@ -54,15 +103,16 @@ def get_price_trend(city: str, months: int = 24):
         ROUND(AVG(ClosePrice), 0) AS avg_price,
         ROUND(AVG(DaysOnMarket), 1) AS avg_dom
     FROM california_sold
-    WHERE City = %s
+    WHERE LOWER(TRIM(City)) = LOWER(TRIM(%s))
       AND PropertyType = "Residential"
-      AND CloseDate >= DATE_SUB(CURDATE(), INTERVAL %s MONTH)
+      AND CloseDate <= %s
+      AND CloseDate >= DATE_SUB(%s, INTERVAL %s MONTH)
     GROUP BY DATE_FORMAT(CloseDate, "%Y-%m")
     ORDER BY month
     """
-    df = pd.read_sql(query, engine, params=(city, months))
+    df = pd.read_sql(query, engine, params=(city, as_of_date, as_of_date, months))
     month_range = pd.date_range(
-        end=pd.Timestamp.today().replace(day=1),
+        end=as_of.replace(day=1),
         periods=months,
         freq="MS",
     ).strftime("%Y-%m")
@@ -70,7 +120,7 @@ def get_price_trend(city: str, months: int = 24):
     df = full_months.merge(df, on="month", how="left")
     df["sales"] = df["sales"].fillna(0).astype(int)
     df.loc[df["sales"] == 0, ["avg_price", "avg_dom"]] = None
-    df["price_change_pct"] = df["avg_price"].pct_change() * 100
+    df["price_change_pct"] = pd.to_numeric(df["avg_price"], errors="coerce").pct_change() * 100
     return df
 
 
@@ -266,11 +316,23 @@ def _normalize_records(df: pd.DataFrame):
     return cleaned.to_dict(orient="records")
 
 
-def run_action(action: str, city: str | None, months: int, limit: int, group_by: str):
-    if action == "price_trend":
+def run_action(
+    action: str,
+    city: str | None,
+    months: int,
+    limit: int,
+    group_by: str,
+    weeks: int = 8,
+):
+    as_of = get_market_as_of_date()
+    if action == "weekly_sales_summary":
+        if not city:
+            raise ValueError("city is required for weekly_sales_summary")
+        df = get_weekly_sales_summary(city, weeks, as_of=as_of)
+    elif action == "price_trend":
         if not city:
             raise ValueError("city is required for price_trend")
-        df = get_price_trend(city, months)
+        df = get_price_trend(city, months, as_of=as_of)
     elif action == "city_snapshot":
         df = get_city_market_snapshot()
     elif action == "avg_median":
@@ -301,8 +363,10 @@ def run_action(action: str, city: str | None, months: int, limit: int, group_by:
         "params": {
             "city": city,
             "months": months,
+            "weeks": weeks,
             "limit": limit,
             "group_by": group_by,
+            "as_of": str(as_of.date()),
         },
         "records": _normalize_records(df),
     }
@@ -313,6 +377,7 @@ def main():
     parser.add_argument("action")
     parser.add_argument("--city", default=None)
     parser.add_argument("--months", type=int, default=12)
+    parser.add_argument("--weeks", type=int, default=8)
     parser.add_argument("--limit", type=int, default=25)
     parser.add_argument("--group-by", default="city")
     args = parser.parse_args()
@@ -323,6 +388,7 @@ def main():
         months=args.months,
         limit=args.limit,
         group_by=args.group_by,
+        weeks=args.weeks,
     )
     print(json.dumps(payload, default=str))
 
